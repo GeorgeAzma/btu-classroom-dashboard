@@ -19,8 +19,9 @@ _gcl_au=1.1.1745258531.1758911965; argus_session=svu01itqrc43uu5pvgj89s2cr; sbjs
 ```
 cookie=your_btu_classroom_cookie
 ```
-9. open terminal inside repo folder and run
+9. open terminal inside repo folder and run:
 ``` bash
+# make sure python is installed
 python3 -m venv .venv
 pip install -r requirements.txt
 python3 main.py
@@ -31,3 +32,4 @@ python3 main.py
 ### Notes
 - Grades are updated every rerun
 - Stop the script by pressing `Ctrl + C` inside terminal
+- If you have a problem open Issue on GitHub, or comment on the post
