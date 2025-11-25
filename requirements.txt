@@ -1,0 +1,6 @@
+beautifulsoup4==4.14.2
+bs4==0.0.2
+dotenv==0.9.9
+python-dotenv==1.2.1
+soupsieve==2.8
+typing_extensions==4.15.0

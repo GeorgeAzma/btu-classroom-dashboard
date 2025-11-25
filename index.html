@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BTU Courses</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        ::-webkit-scrollbar {
+            display: none;
+        }
+
+        html {
+            scrollbar-width: none;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, #0c0c0c 0%, #1a1a2e 100%);
+            color: #e4e4e7;
+            min-height: 100vh;
+            padding: 2rem;
+        }
+
+        .courses {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1rem;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        @media (max-width: 900px) {
+            .courses {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .course {
+            background: #18181b;
+            border-radius: 12px;
+            padding: 1.25rem;
+            border: 1px solid #27272a;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .course:hover {
+            border-color: #3f3f46;
+        }
+
+        .course-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 1rem;
+        }
+
+        .course-info {
+            flex: 1;
+        }
+
+        .course-name {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #fafafa;
+            margin-bottom: 0.25rem;
+        }
+
+        .course-meta {
+            font-size: 0.85rem;
+            color: #71717a;
+        }
+
+        .ects {
+            font-size: 0.7rem;
+            padding: 0.25rem 0.6rem;
+            background: rgba(139, 92, 246, 0.2);
+            color: #a78bfa;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+
+        .syllabus-link {
+            font-size: 0.7rem;
+            padding: 0.25rem 0.6rem;
+            background: rgba(59, 130, 246, 0.15);
+            color: #60a5fa;
+            border-radius: 4px;
+            font-weight: 500;
+            text-decoration: none;
+            transition: all 0.15s;
+        }
+
+        .syllabus-link:hover {
+            background: rgba(59, 130, 246, 0.25);
+            color: #93c5fd;
+        }
+
+        .grade {
+            font-size: 2rem;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            line-height: 1;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .pct-badge {
+            font-size: 0.65rem;
+            padding: 0.2rem 0.45rem;
+            border-radius: 4px;
+            font-weight: 600;
+            opacity: 0.9;
+        }
+
+        .assessments {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+
+        .assessment {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.8rem;
+            padding: 0.35rem 0.6rem;
+            background: #27272a;
+            border-radius: 6px;
+        }
+
+        .assessment-name {
+            color: #a1a1aa;
+        }
+
+        .assessment-score {
+            color: #4ade80;
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .assessment-score.empty {
+            color: #52525b;
+        }
+
+        .materials-section {
+            border-top: 1px solid #27272a;
+            padding-top: 0.75rem;
+        }
+
+        .materials-toggle {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.85rem;
+            color: #71717a;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .materials-toggle:hover {
+            color: #a1a1aa;
+        }
+
+        .materials-toggle .arrow {
+            transition: transform 0.2s;
+        }
+
+        .materials-section.expanded .materials-toggle .arrow {
+            transform: rotate(90deg);
+        }
+
+        .materials {
+            display: none;
+            flex-direction: column;
+            gap: 0.4rem;
+            margin-top: 0.75rem;
+        }
+
+        .materials-section.expanded .materials {
+            display: flex;
+        }
+
+        .material {
+            font-size: 0.85rem;
+            padding: 0.5rem 0.75rem;
+            background: rgba(59, 130, 246, 0.1);
+            color: #60a5fa;
+            text-decoration: none;
+            border-radius: 6px;
+            transition: all 0.15s;
+            display: block;
+        }
+
+        .material:hover {
+            background: rgba(59, 130, 246, 0.2);
+            color: #93c5fd;
+        }
+
+        .material::before {
+            content: "↓ ";
+            opacity: 0.5;
+        }
+
+        .summary {
+            grid-column: 1 / -1;
+            background: linear-gradient(135deg, #18181b 0%, #1f1f23 100%);
+            border-radius: 12px;
+            padding: 1.5rem;
+            border: 1px solid #27272a;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .summary-item {
+            text-align: center;
+        }
+
+        .summary-label {
+            font-size: 0.75rem;
+            color: #71717a;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.5rem;
+        }
+
+        .summary-value {
+            font-size: 1.75rem;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+
+        .summary-sub {
+            font-size: 0.8rem;
+            color: #71717a;
+            margin-top: 0.25rem;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="courses">
+        <div class="course">
+    <div class="course-header">
+        <div class="course-info">
+            <div class="course-name">Digital Technology Principles</div>
+            <div class="course-meta">Group 4.2 · Nona Otkhozoria</div>
+        </div>
+        <a href="courses/Digital Technology Principles/syllabus.pdf" class="syllabus-link" target="_blank">Syllabus</a>
+        <span class="ects">3 ECTS</span>
+        <div class="grade" style="color: #84cc16">43/50</div>
+    </div>
+    <div class="assessments"><span class="assessment"><span class="assessment-name">Practice work 01</span><span class="assessment-score" style="color: #991b1b">5/10</span><span class="pct-badge" style="background: #991b1b20; color: #991b1b">50%</span></span><span class="assessment"><span class="assessment-name">Practice work 02</span><span class="assessment-score" style="color: #22c55e">10/10</span></span><span class="assessment"><span class="assessment-name">Practice work 03</span><span class="assessment-score" style="color: #22c55e">10/10</span></span><span class="assessment"><span class="assessment-name">Practice work 04</span><span class="assessment-score empty">—</span></span><span class="assessment"><span class="assessment-name">Practice work 05</span><span class="assessment-score empty">—</span></span><span class="assessment"><span class="assessment-name">Midterm Evaluation 1</span><span class="assessment-score" style="color: #84cc16">18/20</span><span class="pct-badge" style="background: #84cc1620; color: #84cc16">90%</span></span><span class="assessment"><span class="assessment-name">Final evaluation</span><span class="assessment-score empty">—</span></span><span class="assessment"><span class="assessment-name">Remediation exam</span><span class="assessment-score empty">—</span></span></div>
+    
+</div><div class="course">
+    <div class="course-header">
+        <div class="course-info">
+            <div class="course-name">Programming essentials  (Python)</div>
+            <div class="course-meta">Group 4.1 · Marta Melia</div>
+        </div>
+        <a href="courses/Programming essentials  (Python)/syllabus.pdf" class="syllabus-link" target="_blank">Syllabus</a>
+        <span class="ects">6 ECTS</span>
+        <div class="grade" style="color: #eab308">36/46</div>
+    </div>
+    <div class="assessments"><span class="assessment"><span class="assessment-name">Practice work 01</span><span class="assessment-score" style="color: #22c55e">8/8</span></span><span class="assessment"><span class="assessment-name">Practice work 02</span><span class="assessment-score" style="color: #991b1b">0/8</span></span><span class="assessment"><span class="assessment-name">Practice work 03</span><span class="assessment-score empty">—</span></span><span class="assessment"><span class="assessment-name">Practice work 04</span><span class="assessment-score empty">—</span></span><span class="assessment"><span class="assessment-name">Practice work 05</span><span class="assessment-score empty">—</span></span><span class="assessment"><span class="assessment-name">Midterm Evaluation 1</span><span class="assessment-score" style="color: #22c55e">28/30</span><span class="pct-badge" style="background: #22c55e20; color: #22c55e">93%</span></span><span class="assessment"><span class="assessment-name">Final evaluation</span><span class="assessment-score empty">—</span></span><span class="assessment"><span class="assessment-name">Remediation exam</span><span class="assessment-score empty">—</span></span></div>
+    <div class="materials-section">
+        <div class="materials-toggle"><span class="arrow">▶</span> Materials (11)</div>
+        <div class="materials"><a href="courses/Programming essentials  (Python)/material/58756.pptx" class="material" target="_blank">ლექცია 1</a><a href="courses/Programming essentials  (Python)/material/59419.pptx" class="material" target="_blank">ინსტალაცია</a><a href="courses/Programming essentials  (Python)/material/59420.pptx" class="material" target="_blank">ლექცია 2</a><a href="courses/Programming essentials  (Python)/material/59977.pptx" class="material" target="_blank">ლექცია 3</a><a href="courses/Programming essentials  (Python)/material/60331.pptx" class="material" target="_blank">ლექცია 4</a><a href="courses/Programming essentials  (Python)/material/60830.pptx" class="material" target="_blank">ლექცია 5</a><a href="courses/Programming essentials  (Python)/material/60966.pdf" class="material" target="_blank">პრაქტიკული ამოცანები</a><a href="courses/Programming essentials  (Python)/material/61731.pptx" class="material" target="_blank">ლექცია 6</a><a href="courses/Programming essentials  (Python)/material/61733.pptx" class="material" target="_blank">ლექცია 7</a><a href="courses/Programming essentials  (Python)/material/62253.pdf" class="material" target="_blank">ლექცია 8</a><a href="courses/Programming essentials  (Python)/material/62585.pdf" class="material" target="_blank">ლექცია 9</a></div>
+    </div>
+</div><div class="course">
+    <div class="course-header">
+        <div class="course-info">
+            <div class="course-name">Operating System</div>
+            <div class="course-meta">Group 2.2 · Luka Pataraia</div>
+        </div>
+        <a href="courses/Operating System/syllabus.pdf" class="syllabus-link" target="_blank">Syllabus</a>
+        <span class="ects">4 ECTS</span>
+        <div class="grade" style="color: #22c55e">39.5/40</div>
+    </div>
+    <div class="assessments"><span class="assessment"><span class="assessment-name">Practice work 01</span><span class="assessment-score" style="color: #22c55e">5/5</span></span><span class="assessment"><span class="assessment-name">Practice work 02</span><span class="assessment-score" style="color: #84cc16">4.5/5</span><span class="pct-badge" style="background: #84cc1620; color: #84cc16">90%</span></span><span class="assessment"><span class="assessment-name">Practice work 03</span><span class="assessment-score empty">—</span></span><span class="assessment"><span class="assessment-name">Practice work 04</span><span class="assessment-score empty">—</span></span><span class="assessment"><span class="assessment-name">Practice work 05</span><span class="assessment-score empty">—</span></span><span class="assessment"><span class="assessment-name">Practice work 06</span><span class="assessment-score empty">—</span></span><span class="assessment"><span class="assessment-name">Midterm Evaluation 1</span><span class="assessment-score" style="color: #22c55e">30/30</span></span><span class="assessment"><span class="assessment-name">Final evaluation</span><span class="assessment-score empty">—</span></span><span class="assessment"><span class="assessment-name">Remediation exam</span><span class="assessment-score empty">—</span></span></div>
+    <div class="materials-section">
+        <div class="materials-toggle"><span class="arrow">▶</span> Materials (4)</div>
+        <div class="materials"><a href="courses/Operating System/material/60893.pdf" class="material" target="_blank">Learn Linux Quickly</a><a href="courses/Operating System/material/60894.pdf" class="material" target="_blank">Linux with Operating System Concepts, 2nd Edition</a><a href="courses/Operating System/material/60898.pdf" class="material" target="_blank">Linux Basics for Hackers</a></div>
+    </div>
+</div><div class="course">
+    <div class="course-header">
+        <div class="course-info">
+            <div class="course-name">Introduction to Entrepreneurship</div>
+            <div class="course-meta">Group 1 · Giorgi Kintsurashvili</div>
+        </div>
+        <a href="courses/Introduction to Entrepreneurship/syllabus.pdf" class="syllabus-link" target="_blank">Syllabus</a>
+        <span class="ects">6 ECTS</span>
+        <div class="grade" style="color: #22c55e">33/34</div>
+    </div>
+    <div class="assessments"><span class="assessment"><span class="assessment-name">გუნდური დავალება 1</span><span class="assessment-score" style="color: #22c55e">4/4</span></span><span class="assessment"><span class="assessment-name">გუნდური დავალება 2</span><span class="assessment-score empty">—</span></span><span class="assessment"><span class="assessment-name">Work 01</span><span class="assessment-score empty">—</span></span><span class="assessment"><span class="assessment-name">Work 02</span><span class="assessment-score empty">—</span></span><span class="assessment"><span class="assessment-name">Work 03</span><span class="assessment-score empty">—</span></span><span class="assessment"><span class="assessment-name">Work 04</span><span class="assessment-score empty">—</span></span><span class="assessment"><span class="assessment-name">Quiz 01</span><span class="assessment-score" style="color: #22c55e">10/10</span></span><span class="assessment"><span class="assessment-name">Quiz 02</span><span class="assessment-score empty">—</span></span><span class="assessment"><span class="assessment-name">Midterm Evaluation 1</span><span class="assessment-score" style="color: #22c55e">19/20</span><span class="pct-badge" style="background: #22c55e20; color: #22c55e">95%</span></span><span class="assessment"><span class="assessment-name">Final evaluation</span><span class="assessment-score empty">—</span></span><span class="assessment"><span class="assessment-name">Remediation exam</span><span class="assessment-score empty">—</span></span></div>
+    <div class="materials-section">
+        <div class="materials-toggle"><span class="arrow">▶</span> Materials (24)</div>
+        <div class="materials"><a href="courses/Introduction to Entrepreneurship/material/59640.pdf" class="material" target="_blank">I ლექცია - ანტრეპრენერი VS მეწარმე</a><a href="courses/Introduction to Entrepreneurship/material/59641.pdf" class="material" target="_blank">I ლექცია - Case - რა აქცევს მეწარმეს მეწარმედ.pdf</a><a href="courses/Introduction to Entrepreneurship/material/59642.pdf" class="material" target="_blank">I ლექცია - სამეწარმეო აზროვება და სტარტაპ ეკოსისტემის არსი , 2021 - რიდერი.pdf</a><a href="courses/Introduction to Entrepreneurship/material/59644.pdf" class="material" target="_blank">I ლექცია - სამეწარმეო აზროვნება სტარტაპ ეკოსისტემის არსი</a><a href="courses/Introduction to Entrepreneurship/material/59645.pdf" class="material" target="_blank">I ლექცია - სანამ სტარტაპში ჩაყვინთავ</a><a href="courses/Introduction to Entrepreneurship/material/59646.pdf" class="material" target="_blank">I ლექცია - სოციალური მეწარმეობა.pdf</a><a href="courses/Introduction to Entrepreneurship/material/59647.pdf" class="material" target="_blank">I ლექცია - სოციალური საწარმოები</a><a href="courses/Introduction to Entrepreneurship/material/59648.docx" class="material" target="_blank">I ლექცია - ცნობილი ანტრეპრენერები (სტივ ჯობსი, ილონ მასკი და სხვები)</a><a href="courses/Introduction to Entrepreneurship/material/60028.pdf" class="material" target="_blank">II ლექცია - ინოვაციის განმარტება, როგორ ხდება ინოვაცია ყოველდღიურობა</a><a href="courses/Introduction to Entrepreneurship/material/60029.pdf" class="material" target="_blank">II ლექცია - რა არის ინოვაცია და როგორ იქმნება ინოვაციური იდეები</a><a href="courses/Introduction to Entrepreneurship/material/60030.pdf" class="material" target="_blank">II ლექცია - როგორ ხდება ტექნოლოგიური ინოვაცია ყოველდღიურობა_</a><a href="courses/Introduction to Entrepreneurship/material/60031.pptx" class="material" target="_blank">ლექცია 2: სლაიდები</a><a href="courses/Introduction to Entrepreneurship/material/60789.pdf" class="material" target="_blank">III ლექცია - კრეატიული აზროვნეა</a><a href="courses/Introduction to Entrepreneurship/material/60790.pdf" class="material" target="_blank">III ლექცია - აზროვნების დიზაინი</a><a href="courses/Introduction to Entrepreneurship/material/60791.pptx" class="material" target="_blank">ლექცია 3: სლაიდები</a><a href="courses/Introduction to Entrepreneurship/material/61064.pptx" class="material" target="_blank">ლექცია 4: სლაიდები - Design Thinking (ნაწილი 2)</a><a href="courses/Introduction to Entrepreneurship/material/62427.pptx" class="material" target="_blank">ლექცია 5 სლაიდები - MVP და ლინ სტარტაპი</a><a href="courses/Introduction to Entrepreneurship/material/62428.pptx" class="material" target="_blank">ლექცია 6-7: სლაიდები - ბაზრის კვლევა და კონკურენტული ანალიზი</a><a href="courses/Introduction to Entrepreneurship/material/62429.pptx" class="material" target="_blank">ლექცია 8: სლაიდები - პრობლემის, იდეის და მომხმარებლის ვალიდაცია</a><a href="courses/Introduction to Entrepreneurship/material/62430.pdf" class="material" target="_blank">V ლექცია - რა არის MVP  როგორ იქმნება და მისი ვალიდაციის მეთოდები</a><a href="courses/Introduction to Entrepreneurship/material/62431.pdf" class="material" target="_blank">VI ლექცია - ბაზრის ტიპები და ანალიზის მეთოდები</a><a href="courses/Introduction to Entrepreneurship/material/62432.pdf" class="material" target="_blank">VII ლექცია - მომხმარებლის იდენტიფიცირება</a><a href="courses/Introduction to Entrepreneurship/material/62433.pdf" class="material" target="_blank">VIII ლექცია - კვლევა, როგორც იდეის ვალიდაციის ინსტრუმენტი</a><a href="courses/Introduction to Entrepreneurship/material/62434.pdf" class="material" target="_blank">VIII ლექცია - კვლევა, როგორც ვალიდაციის ინსტრუმენტი 2</a></div>
+    </div>
+</div><div class="course">
+    <div class="course-header">
+        <div class="course-info">
+            <div class="course-name">Linear Algebra (Advanced Course)</div>
+            <div class="course-meta">Group 1 · Sergo Kharibegashvili</div>
+        </div>
+        <a href="courses/Linear Algebra (Advanced Course)/syllabus.pdf" class="syllabus-link" target="_blank">Syllabus</a>
+        <span class="ects">6 ECTS</span>
+        <div class="grade" style="color: #f97316">27/40</div>
+    </div>
+    <div class="assessments"><span class="assessment"><span class="assessment-name">Activity</span><span class="assessment-score empty">—</span></span><span class="assessment"><span class="assessment-name">Written Test 1</span><span class="assessment-score" style="color: #22c55e">10/10</span></span><span class="assessment"><span class="assessment-name">Written Test 2</span><span class="assessment-score empty">—</span></span><span class="assessment"><span class="assessment-name">Written Test 3</span><span class="assessment-score empty">—</span></span><span class="assessment"><span class="assessment-name">Midterm Evaluation 1</span><span class="assessment-score" style="color: #ef4444">17/30</span><span class="pct-badge" style="background: #ef444420; color: #ef4444">57%</span></span><span class="assessment"><span class="assessment-name">Final evaluation</span><span class="assessment-score empty">—</span></span><span class="assessment"><span class="assessment-name">Remediation exam</span><span class="assessment-score empty">—</span></span></div>
+    <div class="materials-section">
+        <div class="materials-toggle"><span class="arrow">▶</span> Materials (7)</div>
+        <div class="materials"><a href="courses/Linear Algebra (Advanced Course)/material/58922.pdf" class="material" target="_blank">ლექციაI(წრფივი ალგებრა)</a><a href="courses/Linear Algebra (Advanced Course)/material/59352.pdf" class="material" target="_blank">ლექცია II</a><a href="courses/Linear Algebra (Advanced Course)/material/59826.pdf" class="material" target="_blank">ლექცია III(წრფივი ალგებრა)</a><a href="courses/Linear Algebra (Advanced Course)/material/60574.pdf" class="material" target="_blank">ლექცია IV(წრფივი ალგებრა)</a><a href="courses/Linear Algebra (Advanced Course)/material/61000.pdf" class="material" target="_blank">ლექცია V(წრფივი ალგებრა)</a><a href="courses/Linear Algebra (Advanced Course)/material/61486.pdf" class="material" target="_blank">ლექცია VI(წრფივი ალგებრა)</a><a href="courses/Linear Algebra (Advanced Course)/material/61983.pdf" class="material" target="_blank">ლექცია VII (წრფივი ალგებრა)</a></div>
+    </div>
+</div><div class="course">
+    <div class="course-header">
+        <div class="course-info">
+            <div class="course-name">Academic Writing</div>
+            <div class="course-meta">Group 4.3 · Tamar Gitolendia</div>
+        </div>
+        <a href="courses/Academic Writing/syllabus.pdf" class="syllabus-link" target="_blank">Syllabus</a>
+        <span class="ects">3 ECTS</span>
+        <div class="grade" style="color: #84cc16">35/41</div>
+    </div>
+    <div class="assessments"><span class="assessment"><span class="assessment-name">Work 01</span><span class="assessment-score" style="color: #991b1b">0/3</span></span><span class="assessment"><span class="assessment-name">Work 02</span><span class="assessment-score empty">—</span></span><span class="assessment"><span class="assessment-name">Practice work 01</span><span class="assessment-score" style="color: #22c55e">2/2</span></span><span class="assessment"><span class="assessment-name">Practice work 02</span><span class="assessment-score" style="color: #22c55e">2/2</span></span><span class="assessment"><span class="assessment-name">Practice work 03</span><span class="assessment-score" style="color: #22c55e">2/2</span></span><span class="assessment"><span class="assessment-name">Practice work 04</span><span class="assessment-score" style="color: #22c55e">2/2</span></span><span class="assessment"><span class="assessment-name">Practice work 05</span><span class="assessment-score" style="color: #22c55e">2/2</span></span><span class="assessment"><span class="assessment-name">Practice work 06</span><span class="assessment-score" style="color: #22c55e">2/2</span></span><span class="assessment"><span class="assessment-name">Practice work 07</span><span class="assessment-score" style="color: #22c55e">2/2</span></span><span class="assessment"><span class="assessment-name">Practice work 08</span><span class="assessment-score empty">—</span></span><span class="assessment"><span class="assessment-name">Practice work 09</span><span class="assessment-score empty">—</span></span><span class="assessment"><span class="assessment-name">Practice work 10</span><span class="assessment-score empty">—</span></span><span class="assessment"><span class="assessment-name">პრაქტიკული დავალება 11</span><span class="assessment-score empty">—</span></span><span class="assessment"><span class="assessment-name">პრაქტიკული დავალება 12</span><span class="assessment-score empty">—</span></span><span class="assessment"><span class="assessment-name">Presentation</span><span class="assessment-score empty">—</span></span><span class="assessment"><span class="assessment-name">Quiz 01</span><span class="assessment-score empty">—</span></span><span class="assessment"><span class="assessment-name">Midterm Evaluation 1</span><span class="assessment-score" style="color: #84cc16">21/24</span><span class="pct-badge" style="background: #84cc1620; color: #84cc16">88%</span></span><span class="assessment"><span class="assessment-name">Final evaluation</span><span class="assessment-score empty">—</span></span><span class="assessment"><span class="assessment-name">Remediation exam</span><span class="assessment-score empty">—</span></span></div>
+    <div class="materials-section">
+        <div class="materials-toggle"><span class="arrow">▶</span> Materials (20)</div>
+        <div class="materials"><a href="courses/Academic Writing/material/58834.pptx" class="material" target="_blank">კვირა 1: ენა, იდენტობა, კულტურა</a><a href="courses/Academic Writing/material/59236.pptx" class="material" target="_blank">კვირა 2-წერის დაწყების ეტაპები -4 პრინციპი</a><a href="courses/Academic Writing/material/59248.pdf" class="material" target="_blank">ფუნქციური წერის სახელმძღვანელო- ქ. გოჩიტაშვილი.</a><a href="courses/Academic Writing/material/59678.pdf" class="material" target="_blank">აკადემიური წერა დამწყებთათვის</a><a href="courses/Academic Writing/material/59680.pdf" class="material" target="_blank">მასალა საკლასო აქტივობისათვის - კვირა 3</a><a href="courses/Academic Writing/material/59775.docx" class="material" target="_blank">საშინაო დავალება 1</a><a href="courses/Academic Writing/material/60278.pptx" class="material" target="_blank">კვირა-3</a><a href="courses/Academic Writing/material/60418.pdf" class="material" target="_blank">აკადემიური წერა- გოჩიტაშვილი, შაბაშვილი - თავი II</a><a href="courses/Academic Writing/material/60456.pptx" class="material" target="_blank">კვირა 4- სტილი</a><a href="courses/Academic Writing/material/60901.pptx" class="material" target="_blank">კვირა 5 - სამი სტრუქტურა-3-5 დონე</a><a href="courses/Academic Writing/material/61480.pptx" class="material" target="_blank">კვირა 6 - SCQR, სენდვიჩის მეთოდი</a><a href="courses/Academic Writing/material/61789.pptx" class="material" target="_blank">კვირა 7- არგუმენტირება, როჯერსის მოდელი</a><a href="courses/Academic Writing/material/61829.docx" class="material" target="_blank">საშინაო დავალება 2 - კვირა 7</a><a href="courses/Academic Writing/material/61856.docx" class="material" target="_blank">მზადება შუალედური გამოცდისთვის</a><a href="courses/Academic Writing/material/61908.jpg" class="material" target="_blank">სქემა - ლოგოსი ეთოსი პათოსი</a><a href="courses/Academic Writing/material/62297.pptx" class="material" target="_blank">კვირა 9 - აბზაცი</a><a href="courses/Academic Writing/material/62650.pptx" class="material" target="_blank">კვირა-10-გეგმა, შავი ნაწერი</a><a href="courses/Academic Writing/material/62653.docx" class="material" target="_blank">კვირა 10 - სავარჯიშო</a></div>
+    </div>
+</div>
+        <div class="summary">
+    <div class="summary-item">
+        <div class="summary-label">GPA</div>
+        <div class="summary-value" style="color: #f97316">2.71</div>
+    </div>
+    <div class="summary-item">
+        <div class="summary-label">Total Score</div>
+        <div class="summary-value" style="color: #84cc16">213.5/251 <span class="pct-badge" style="background: #84cc1620; color: #84cc16">85%</span></div>
+    </div>
+    <div class="summary-item">
+        <div class="summary-label">Courses</div>
+        <div class="summary-value" style="color: #a78bfa">6</div>
+    </div>
+    <div class="summary-item">
+        <div class="summary-label">ECTS</div>
+        <div class="summary-value" style="color: #a78bfa">28</div>
+    </div>
+</div>
+    </div>
+    <script>
+        document.querySelectorAll('.materials-toggle').forEach(toggle => {
+            toggle.addEventListener('click', () => {
+                toggle.closest('.materials-section').classList.toggle('expanded');
+            });
+        });
+    </script>
+</body>
+
+</html>
