@@ -1,4 +1,7 @@
+.venv/
+.vscode/
+__pycache__/
+courses/
+html/
+
 .env
-.venv
-.vscode
-__pycache__
