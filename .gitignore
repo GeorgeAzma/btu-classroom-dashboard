@@ -1,8 +1,5 @@
 .venv/
 .vscode/
 __pycache__/
-courses/
-html/
-index.html
 
 .env

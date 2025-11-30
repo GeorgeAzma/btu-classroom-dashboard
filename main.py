@@ -1,142 +1,116 @@
-from dotenv import load_dotenv
-load_dotenv()
-
-import os
-import urllib.request
-import subprocess
+from pathlib import Path
+import json, os, subprocess, re, asyncio
 from bs4 import BeautifulSoup
+import aiohttp
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Cookie": os.getenv("cookie"),
-}
-
+APP_DIR = (Path(os.environ.get('APPDATA', Path.home())) if os.name == 'nt' else Path.home() / '.config') / 'btu-dashboard'
 BASE_URL = "https://classroom.btu.edu.ge/en/student/me/courses"
+HEADERS = {"User-Agent": "Mozilla/5.0", "Accept": "text/html,*/*;q=0.8"}
+
+def load_config():
+    try: return json.loads((APP_DIR / 'config.json').read_text())
+    except: return {}
 
 
-def fetch(url: str) -> str:
-    req = urllib.request.Request(url, headers=HEADERS, method="GET")
-    with urllib.request.urlopen(req) as r:
-        return r.read().decode("utf-8", errors="ignore")
+def save_config(cfg):
+    APP_DIR.mkdir(parents=True, exist_ok=True)
+    (APP_DIR / 'config.json').write_text(json.dumps(cfg, indent=2))
+
+def parse_num(td):
+    try: return float(td.get_text(strip=True).replace(",", "."))
+    except: return td.get_text(strip=True)
+
+TEMPLATE = '''<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="btu.ico" type="image/x-icon"><title>BTU Courses</title><style>*{margin:0;padding:0;box-sizing:border-box}::-webkit-scrollbar{display:none}html{scrollbar-width:none}body{font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:linear-gradient(135deg,#0c0c0c,#1a1a2e);color:#e4e4e7;min-height:100vh;padding:2rem}.courses{display:grid;grid-template-columns:repeat(2,1fr);gap:1rem;max-width:1400px;margin:0 auto}@media(max-width:900px){.courses{grid-template-columns:1fr}}.course{background:#18181b;border-radius:12px;padding:1.25rem;border:1px solid #27272a;display:flex;flex-direction:column;gap:.75rem}.course:hover{border-color:#3f3f46}.course-header{display:flex;justify-content:space-between;align-items:flex-start;gap:1rem}.course-info{flex:1}.course-name{font-size:1.1rem;font-weight:600;color:#fafafa;margin-bottom:.25rem}.course-meta{font-size:.85rem;color:#71717a}.ects{font-size:.7rem;padding:.25rem .6rem;background:rgba(139,92,246,.2);color:#a78bfa;border-radius:4px;font-weight:500}.syllabus-link{font-size:.7rem;padding:.25rem .6rem;background:rgba(59,130,246,.15);color:#60a5fa;border-radius:4px;font-weight:500;text-decoration:none;transition:.15s}.syllabus-link:hover{background:rgba(59,130,246,.25);color:#93c5fd}.grade{font-size:2rem;font-weight:700;font-variant-numeric:tabular-nums;line-height:1;display:flex;align-items:center;gap:.5rem}.pct-badge{font-size:.65rem;padding:.2rem .45rem;border-radius:4px;font-weight:600;opacity:.9}.assessments{display:flex;flex-wrap:wrap;gap:.5rem}.assessment{display:inline-flex;align-items:center;gap:.5rem;font-size:.8rem;padding:.35rem .6rem;background:#27272a;border-radius:6px}.assessment-name{color:#a1a1aa}.assessment-score{color:#4ade80;font-weight:600;font-variant-numeric:tabular-nums}.assessment-score.empty{color:#52525b}.materials-section{border-top:1px solid #27272a;padding-top:.75rem}.materials-toggle{display:flex;align-items:center;gap:.5rem;font-size:.85rem;color:#71717a;cursor:pointer;user-select:none}.materials-toggle:hover{color:#a1a1aa}.materials-toggle .arrow{transition:transform .2s}.materials-section.expanded .materials-toggle .arrow{transform:rotate(90deg)}.materials{display:none;flex-direction:column;gap:.4rem;margin-top:.75rem}.materials-section.expanded .materials{display:flex}.material{font-size:.85rem;padding:.5rem .75rem;background:rgba(59,130,246,.1);color:#60a5fa;text-decoration:none;border-radius:6px;transition:.15s;display:block}.material:hover{background:rgba(59,130,246,.2);color:#93c5fd}.material::before{content:"↓ ";opacity:.5}.summary{grid-column:1/-1;background:linear-gradient(135deg,#18181b,#1f1f23);border-radius:12px;padding:1.5rem;border:1px solid #27272a;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1.5rem}.summary-item{text-align:center}.summary-label{font-size:.75rem;color:#71717a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.5rem}.summary-value{font-size:1.75rem;font-weight:700;font-variant-numeric:tabular-nums;display:flex;align-items:center;justify-content:center;gap:.5rem}</style></head><body><div class="courses">{{COURSES}}{{SUMMARY}}</div><script>document.querySelectorAll('.materials-toggle').forEach(t=>t.addEventListener('click',()=>t.closest('.materials-section').classList.toggle('expanded')))</script></body></html>'''
+
+class Http:
+    """Simple async HTTP client with connection pooling"""
+    def __init__(self, cookie: str = ""):
+        self.cookie, self.session = cookie, None
+    
+    async def __aenter__(self):
+        self.session = aiohttp.ClientSession(
+            headers={**HEADERS, "Cookie": self.cookie},
+            timeout=aiohttp.ClientTimeout(total=60)
+        )
+        return self
+    
+    async def __aexit__(self, *_):
+        if self.session: 
+            await self.session.close()
+    
+    async def get(self, url: str, binary: bool = False) -> bytes | str:
+        if not self.session: raise Exception("No session")
+        async with self.session.get(url) as r:
+            r.raise_for_status()
+            return await r.read() if binary else (await r.read()).decode("utf-8", errors="ignore")
 
 
-def fetch_binary(url: str) -> bytes:
-    req = urllib.request.Request(url, headers=HEADERS, method="GET")
-    with urllib.request.urlopen(req) as r:
-        return r.read()
-
-
-def copy_to_clipboard(data: str) -> None:
-    p = subprocess.Popen(["clip.exe"], stdin=subprocess.PIPE)
-    p.communicate(data.encode("utf-16le"))
-
-
-def parse_num(td) -> float | str:
-    txt = td.get_text(strip=True).replace(",", ".")
-    try:
-        return float(txt)
-    except ValueError:
-        return txt
-
-
-def parse_courses(html: str) -> tuple[list[dict], float | str | None]:
+def parse_courses(html):
     soup = BeautifulSoup(html, "html.parser")
-    table = soup.select_one("table.table.table-striped.table-bordered.table-hover.fluid")
-    if not table:
-        return [], None
-
-    tbody = table.find("tbody")
-    if not tbody:
-        return [], None
-
-    courses, total_ects = [], None
-
-    for tr in tbody.find_all("tr"):
+    if not (table := soup.select_one("table.table.table-striped.table-bordered.table-hover.fluid")):
+        return []
+    courses = []
+    for tr in table.select("tbody tr"):
         tds = tr.find_all("td")
-
-        if len(tds) == 2 and not tds[0].get_text(strip=True):
-            total_ects = parse_num(tds[-1])
-            continue
-
-        if len(tds) != 6:
-            continue
-
+        if len(tds) < 6: continue
         name_a = tds[2].find("a")
         courses.append({
             "name": name_a.get_text(strip=True) if name_a else tds[2].get_text(strip=True),
-            "grade": parse_num(tds[3]),
+            "grade": parse_num(tds[3]), 
             "ects": parse_num(tds[5]),
             "url": name_a["href"] if name_a and name_a.has_attr("href") else None,
         })
-
-    return courses, total_ects
+    return courses
 
 
 def extract_course_urls(html: str) -> dict[str, str]:
     soup = BeautifulSoup(html, "html.parser")
     urls = {}
 
-    tabs = soup.select_one("#course_tabs")
-    if tabs:
-        for link in tabs.find_all("a", href=True):
-            href = link["href"]
-            if "silabus" in href:
-                urls["syllabus"] = href
-            elif "groups" in href:
-                urls["groups"] = href
-            elif "scores" in href:
-                urls["scores"] = href
-            elif "files" in href:
-                urls["files"] = href
-
-    syllabus_file = soup.select_one('a[href*="courseSilabusFile"]')
-    if syllabus_file:
-        urls["syllabus_file"] = syllabus_file["href"]
+    if tabs := soup.select_one("#course_tabs"):
+        for a in tabs.find_all("a", href=True):
+            for key in ("silabus", "groups", "scores", "files"):
+                if key in a["href"]: 
+                    urls[key.replace("silabus", "syllabus")] = a["href"]
+                    
+    if sf := soup.select_one('a[href*="courseSilabusFile"]'): 
+        urls["syllabus_file"] = sf["href"]
 
     return urls
 
 
 def parse_scores(html: str) -> dict:
-    """Extract scores/evaluations from scores.html"""
-    import re
     soup = BeautifulSoup(html, "html.parser")
     data = {"group": None, "lector": None, "assessments": []}
 
-    h4 = soup.select_one(".tab_scores h4")
-    if h4:
+    if h4 := soup.select_one(".tab_scores h4"):
         text = h4.get_text(" ", strip=True)
         if "Group" in text:
             parts = text.split(" - ", 1)
             data["group"] = parts[0].replace("Group", "").strip()
-        lector_link = h4.select_one("a[href*='/lector/']")
-        if lector_link:
+        if lector_link := h4.select_one("a[href*='/lector/']"):
             data["lector"] = lector_link.get_text(strip=True)
 
-    table = soup.select_one(".tab_scores table")
-    if table:
+    if table := soup.select_one(".tab_scores table"):
         for tr in table.select("tbody tr"):
             tds = tr.find_all("td")
-            if len(tds) != 2:
+            if len(tds) < 2:
                 continue
             
             component = tds[0].get_text(strip=True)
             score = tds[1].get_text(strip=True)
             
-            if component in ("სულ", "Credits") or "გამოცდაზე გასვლის" in component:
+            if not component or component in ("სულ", "Credits") or "გამოცდაზე გასვლის" in component:
                 continue
             
-            if component:
-                # Extract max points from component name like "(max. 8)" or "(min. 12.3, max. 30)"
-                max_points = None
-                max_match = re.search(r'max\.?\s*([\d.,]+)', component)
-                if max_match:
-                    try:
-                        max_points = float(max_match.group(1).replace(',', '.'))
-                    except ValueError:
-                        pass
-                
-                data["assessments"].append({"component": component, "score": score or None, "max_points": max_points})
+            # Extract max points from component name like "(max. 8)" or "(min. 12.3, max. 30)"
+            max_points = None
+            if max_match := re.search(r'max\.?\s*([\d.,]+)', component):
+                try:
+                    max_points = float(max_match.group(1).replace(',', '.'))
+                except: pass
+            
+            data["assessments"].append({"component": component, "score": score or None, "max_points": max_points})
 
     return data
 
@@ -147,14 +121,11 @@ def parse_files(html: str, my_lector: str | None = None) -> list[dict]:
     materials = []
     current_lector = None
 
-    table = soup.select_one("#files")
-    if not table:
+    if not (table := soup.select_one("#files")): 
         return materials
 
     for tr in table.find_all("tr"):
-        lector_link = tr.select_one("a[href*='/lector/']")
-        tr_class = tr.get("class") or []
-        if lector_link and "info" in tr_class:
+        if (lector_link := tr.select_one("a[href*='/lector/']")) and "info" in (tr.get("class") or []):
             current_lector = lector_link.get_text(strip=True)
             continue
 
@@ -162,448 +133,259 @@ def parse_files(html: str, my_lector: str | None = None) -> list[dict]:
         if my_lector and current_lector and current_lector.lower() != my_lector.lower():
             continue
 
-        tds = tr.find_all("td")
-        if not tds:
+        if not (tds := tr.find_all("td")):
             continue
 
-        file_link = tds[0].select_one("a[href*='/uploads/']")
-        name = tds[0].get_text(strip=True)
-        url = file_link["href"] if file_link and file_link.get("href") else None
+        url = fl["href"] if (fl := tds[0].select_one("a[href*='/uploads/']")) and fl.get("href") else None
 
-        ext_link = tds[1].select_one("a") if len(tds) > 1 else None
-        ext_url = ext_link["href"] if ext_link else None
-
-        if name:
-            materials.append({
-                "name": name,
-                "url": url,
-                "external_url": ext_url,
-            })
+        if name := tds[0].get_text(strip=True):
+            materials.append({"name": name, "url": url})
 
     return materials
 
 
-def parse_groups(html: str) -> dict:
-    """Extract group info from groups.html (often empty)"""
-    soup = BeautifulSoup(html, "html.parser")
-    # Groups page often shows "Groups Not found" - check for available groups
-    table = soup.select_one("#groups")
-    if not table:
-        return {"groups": []}
-    
-    groups = []
-    for tr in table.find_all("tr"):
-        if "warning" in (tr.get("class") or []):
-            continue
-        text = tr.get_text(strip=True)
-        if text and "Not found" not in text:
-            groups.append(text)
-    
-    return {"groups": groups}
+def write_file(path: Path, data: bytes | str) -> None:
+    """Write file with appropriate mode"""
+    mode = "wb" if isinstance(data, bytes) else "w"
+    with open(path, mode, encoding=None if isinstance(data, bytes) else "utf-8") as f:
+        f.write(data)
 
 
-def parse_course_data(folder: str) -> dict:
-    """Parse all HTML files in a course folder"""
-    data = {}
+async def fetch_course_pages(course: dict, html_folder: Path, course_folder: Path, http: Http) -> dict:
+    if not course["url"]: return {}
+    for d in [html_folder, course_folder, course_folder / "material"]: 
+        d.mkdir(parents=True, exist_ok=True)
+
+    course_html = str(await http.get(course["url"]))
+    urls = extract_course_urls(course_html)
+    write_file(html_folder / "course.html", course_html)
+
+    results: dict[str, str] = {}
+    async def fetch_and_save(name: str, url: str) -> None:
+        try:
+            if name == "syllabus_file" and not (course_folder / "syllabus.pdf").exists():
+                write_file(course_folder / "syllabus.pdf", await http.get(url, binary=True))
+            elif name in ("scores", "files"):
+                content = str(await http.get(url))
+                results[name] = content
+                write_file(html_folder / f"{name}.html", content)
+            elif not (html_folder / f"{name}.html").exists():
+                write_file(html_folder / f"{name}.html", await http.get(url))
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            print(f"  Failed to fetch {name}: {e}")
+
+    await asyncio.gather(*(fetch_and_save(name, url) for name, url in urls.items()), return_exceptions=False)
+
+    data: dict = {}
+    if "scores" in results: 
+        data["scores"] = parse_scores(results["scores"])
+    elif (p := html_folder / "scores.html").exists(): 
+        data["scores"] = parse_scores(p.read_text(encoding="utf-8"))
     
-    scores_path = f"{folder}/scores.html"
-    if os.path.exists(scores_path):
-        with open(scores_path, encoding="utf-8") as f:
-            data["scores"] = parse_scores(f.read())
-    
-    my_lector = data.get("scores", {}).get("lector")
-    
-    files_path = f"{folder}/files.html"
-    if os.path.exists(files_path):
-        with open(files_path, encoding="utf-8") as f:
-            data["materials"] = parse_files(f.read(), my_lector)
-    
-    groups_path = f"{folder}/groups.html"
-    if os.path.exists(groups_path):
-        with open(groups_path, encoding="utf-8") as f:
-            data["groups"] = parse_groups(f.read())
+    lector = data.get("scores", {}).get("lector")
+    if "files" in results: data["materials"] = parse_files(results["files"], lector)
+    elif (p := html_folder / "files.html").exists(): 
+        data["materials"] = parse_files(p.read_text(encoding="utf-8"), lector)
     
     return data
 
 
-def fetch_course_pages(course: dict) -> str:
-    if not course["url"]:
-        return ""
-
-    course_name = course["name"]
-    html_folder = f"html/{course_name}"
-    course_folder = f"courses/{course_name}"
-    os.makedirs(html_folder, exist_ok=True)
-    os.makedirs(course_folder, exist_ok=True)
-    os.makedirs(f"{course_folder}/material", exist_ok=True)
-
-    # Always refetch course page (contains links)
-    course_html = fetch(course["url"])
-    urls = extract_course_urls(course_html)
-
-    with open(f"{html_folder}/course.html", "w", encoding="utf-8") as f:
-        f.write(course_html)
-
-    for name, url in urls.items():
-        if name == "syllabus_file":
-            # Syllabus PDF doesn't change - skip if exists
-            if not os.path.exists(f"{course_folder}/syllabus.pdf"):
-                data = fetch_binary(url)
-                with open(f"{html_folder}/{name}.pdf", "wb") as f:
-                    f.write(data)
-                with open(f"{course_folder}/syllabus.pdf", "wb") as f:
-                    f.write(data)
-        elif name == "scores":
-            # Scores change - always refetch
-            with open(f"{html_folder}/{name}.html", "w", encoding="utf-8") as f:
-                f.write(fetch(url))
-        elif name == "files":
-            # Files page may have new materials - always refetch
-            with open(f"{html_folder}/{name}.html", "w", encoding="utf-8") as f:
-                f.write(fetch(url))
-        else:
-            # syllabus, groups - don't change, skip if exists
-            if not os.path.exists(f"{html_folder}/{name}.html"):
-                with open(f"{html_folder}/{name}.html", "w", encoding="utf-8") as f:
-                    f.write(fetch(url))
-
-    return course_html
-
-
-def download_materials(materials: list[dict], folder: str) -> None:
-    """Download all training materials to folder"""
-    for m in materials:
-        if not m["url"]:
-            continue
-        filename = m["url"].split("/")[-1]
-        filepath = f"{folder}/{filename}"
-        if os.path.exists(filepath):
-            continue
+async def download_materials(materials: list[dict], folder: Path, http: Http) -> None:
+    async def fetch_and_save_material(material: dict):
+        if not material["url"]:
+            return
+        path = folder / material["url"].split("/")[-1]
+        if path.exists():
+            return
         try:
-            with open(filepath, "wb") as f:
-                f.write(fetch_binary(m["url"]))
-        except Exception as e:
-            print(f"  Failed to download {filename}: {e}")
-
-
-def print_course_info(course: dict, data: dict) -> None:
-    """Print course information nicely"""
-    scores = data.get("scores", {})
+            write_file(path, await http.get(material["url"], binary=True))
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            print(f"  Failed: {path.name}: {e}")
     
-    print(f"{course['name']} ({int(course['ects'])} ECTS) - {course['grade']}")
-    print(f"  Group: {scores.get('group')}, Lector: {scores.get('lector')}")
-    
-    for a in scores.get("assessments", []):
-        if a["score"]:
-            print(f"    {a['component']}: {a['score']}")
-    
-    materials = data.get("materials", [])
-    if materials:
-        print(f"  Materials ({len(materials)}):")
-        for m in materials:
-            print(f"    - {m['name']}")
-    
-    print()
+    await asyncio.gather(*(fetch_and_save_material(m) for m in materials), return_exceptions=False)
+
+def grade_color(pct):
+    if pct >= 91: return "#22c55e"
+    if pct >= 81: return "#84cc16"
+    if pct >= 71: return "#eab308"
+    if pct >= 61: return "#f97316"
+    if pct >= 51: return "#ef4444"
+    return "#991b1b"
+
+def fmt(v) -> str:
+    return str(int(v)) if isinstance(v, float) and v == int(v) else str(v) # removes trailing .0
+
+def pct_badge(pct: float, color: str) -> str:
+    """Generate percentage badge HTML, omitting 0% and 100%"""
+    return f'<span class="pct-badge" style="background:{color}20;color:{color}">{pct:.0f}%</span>' if 0 < pct < 100 else ""
 
 
-def get_grade_color(grade: float) -> str:
-    """Return color based on grade"""
-    if grade >= 91:
-        return "#22c55e"  # green
-    elif grade >= 81:
-        return "#84cc16"  # lime
-    elif grade >= 71:
-        return "#eab308"  # yellow
-    elif grade >= 61:
-        return "#f97316"  # orange
-    elif grade >= 51:
-        return "#ef4444"  # red
-    else:
-        return "#991b1b"  # dark red
-
-
-def get_percentage_color(percentage: float) -> str:
-    """Return color based on percentage (0-100)"""
-    if percentage >= 91:
-        return "#22c55e"  # green
-    elif percentage >= 81:
-        return "#84cc16"  # lime
-    elif percentage >= 71:
-        return "#eab308"  # yellow
-    elif percentage >= 61:
-        return "#f97316"  # orange
-    elif percentage >= 51:
-        return "#ef4444"  # red
-    else:
-        return "#991b1b"  # dark red
-
-
-def fmt_num(val) -> str:
-    """Format number, removing trailing .0"""
-    if isinstance(val, float) and val == int(val):
-        return str(int(val))
-    return str(val)
-
-
-def generate_course_html(course: dict, data: dict) -> str:
-    """Generate HTML for a single course card"""
-    scores = data.get("scores", {})
-    materials = data.get("materials", [])
+def generate_course_html(course: dict, data: dict, base: Path) -> str:
+    scores, materials = data.get("scores", {}), data.get("materials", [])
     grade = course["grade"]
+    max_pts = sum(a["max_points"] for a in scores.get("assessments", []) if a.get("score") and a.get("max_points"))
     
-    # Calculate max possible grade at this point in the semester
-    # Sum up max_points for all assessments that have been graded (have a score)
-    max_possible = 0
-    for a in scores.get("assessments", []):
-        if a.get("score") and a.get("max_points"):
-            max_possible += a["max_points"]
-    
-    # Color based on percentage of max possible, not absolute grade
-    if isinstance(grade, (int, float)) and max_possible > 0:
-        percentage = (float(grade) / max_possible) * 100
-        grade_color = get_percentage_color(percentage)
-        grade_display = f"{fmt_num(grade)}/{fmt_num(max_possible)}"
-        # Omit badge for 0% and 100% since they're obvious
-        if 0 < percentage < 100:
-            pct_badge = f'<span class="pct-badge" style="background: {grade_color}20; color: {grade_color}">{percentage:.0f}%</span>'
-        else:
-            pct_badge = ""
+    if isinstance(grade, (int, float)) and max_pts > 0:
+        pct = grade / max_pts * 100
+        color = grade_color(pct)
+        grade_html = f'{fmt(grade)}/{fmt(max_pts)}{pct_badge(pct, color)}'
     elif isinstance(grade, (int, float)):
-        grade_color = get_grade_color(float(grade))
-        grade_display = fmt_num(grade)
-        pct_badge = ""
+        color, grade_html = grade_color(grade), fmt(grade)
     else:
-        grade_color = "#52525b"
-        grade_display = str(grade)
-        pct_badge = ""
+        color, grade_html = "#52525b", str(grade)
     
-    course_folder = f"courses/{course['name']}"
-    syllabus_path = f"{course_folder}/syllabus.pdf"
-    has_syllabus = os.path.exists(syllabus_path)
+    folder = f"courses/{course['name']}"
+    syllabus = f'<a href="{folder}/syllabus.pdf" class="syllabus-link" target="_blank">Syllabus</a>' if (base / course['name'] / "syllabus.pdf").exists() else ""
     
-    # Build assessments HTML
-    assessments_html = ""
+    assess_html = ""
     for a in scores.get("assessments", []):
-        raw_score = a["score"]
-        max_points = a.get("max_points")
-        if raw_score:
-            # Try to format as number
-            try:
-                score_val = float(raw_score.replace(",", "."))
-                score_formatted = fmt_num(score_val)
-            except (ValueError, AttributeError):
-                score_formatted = raw_score
-                score_val = None
-            
-            # Display as score/max if max_points available
-            if max_points:
-                score_display = f"{score_formatted}/{fmt_num(max_points)}"
-                # Calculate percentage for color
-                if score_val is not None:
-                    percentage = (score_val / max_points) * 100
-                    color = get_percentage_color(percentage)
-                    score_class = f'" style="color: {color}'
-                    # Omit badge for 0% and 100% since they're obvious
-                    if 0 < percentage < 100:
-                        pct_badge = f'<span class="pct-badge" style="background: {color}20; color: {color}">{percentage:.0f}%</span>'
-                    else:
-                        pct_badge = ""
-                else:
-                    score_class = ""
-                    pct_badge = ""
+        raw, max_p = a["score"], a.get("max_points")
+        name = a["component"].split("(")[0].strip()
+        if raw:
+            try: val = float(raw.replace(",", "."))
+            except: val = None
+            if max_p and val is not None:
+                p = val / max_p * 100
+                c = grade_color(p)
+                assess_html += f'<span class="assessment"><span class="assessment-name">{name}</span><span class="assessment-score" style="color:{c}">{fmt(val)}/{fmt(max_p)}</span>{pct_badge(p, c)}</span>'
             else:
-                score_display = score_formatted
-                score_class = ""
-                pct_badge = ""
+                assess_html += f'<span class="assessment"><span class="assessment-name">{name}</span><span class="assessment-score">{fmt(val) if val else raw}</span></span>'
         else:
-            score_display = "—"
-            score_class = " empty"
-            pct_badge = ""
-        name = a["component"]
-        if "(" in name:
-            name = name.split("(")[0].strip()
-        assessments_html += f'<span class="assessment"><span class="assessment-name">{name}</span><span class="assessment-score{score_class}">{score_display}</span>{pct_badge}</span>'
+            assess_html += f'<span class="assessment"><span class="assessment-name">{name}</span><span class="assessment-score empty">—</span></span>'
     
-    # Build syllabus link for header
-    syllabus_html = ""
-    if has_syllabus:
-        syllabus_html = f'<a href="{syllabus_path}" class="syllabus-link" target="_blank">Syllabus</a>'
-    
-    # Build materials section - expandable
-    materials_html = ""
+    mat_html = ""
     if materials:
-        material_links = ""
-        for m in materials:
-            if m["url"]:
-                filename = m["url"].split("/")[-1]
-                filepath = f"{course_folder}/material/{filename}"
-                material_links += f'<a href="{filepath}" class="material" target="_blank">{m["name"]}</a>'
-        materials_html = f'''<div class="materials-section">
-        <div class="materials-toggle"><span class="arrow">▶</span> Materials ({len(materials)})</div>
-        <div class="materials">{material_links}</div>
-    </div>'''
+        links = "".join(f'<a href="{folder}/material/{m["url"].split("/")[-1]}" class="material" target="_blank">{m["name"]}</a>' for m in materials if m["url"])
+        mat_html = f'<div class="materials-section"><div class="materials-toggle"><span class="arrow">▶</span> Materials ({len(materials)})</div><div class="materials">{links}</div></div>'
     
-    return f'''<div class="course">
-    <div class="course-header">
-        <div class="course-info">
-            <div class="course-name">{course['name']}</div>
-            <div class="course-meta">Group {scores.get('group', '?')} · {scores.get('lector', 'Unknown')}</div>
-        </div>
-        {syllabus_html}
-        <span class="ects">{int(course['ects'])} ECTS</span>
-        <div class="grade" style="color: {grade_color}">{grade_display}{pct_badge}</div>
-    </div>
-    <div class="assessments">{assessments_html}</div>
-    {materials_html}
-</div>'''
+    return f'''<div class="course"><div class="course-header"><div class="course-info"><div class="course-name">{course['name']}</div><div class="course-meta">Group {scores.get('group', '?')} · {scores.get('lector', 'Unknown')}</div></div>{syllabus}<span class="ects">{int(course['ects'])} ECTS</span><div class="grade" style="color:{color}">{grade_html}</div></div><div class="assessments">{assess_html}</div>{mat_html}</div>'''
 
 
-def generate_summary_html(courses_data: list[tuple[dict, dict]], total_ects: float | str | None) -> str:
+def generate_summary_html(data: list[tuple[dict, dict]]) -> str:
     """Generate HTML for summary section"""
-    total_score = 0
-    total_max_possible = 0
-    total_ects_earned = 0
-    course_count = len(courses_data)
-    
-    # Calculate totals per course (score earned vs max possible so far)
-    course_percentages = []  # List of (percentage, ects) for GPA calculation
-    
-    for course, data in courses_data:
-        grade = course["grade"]
-        ects = course["ects"]
-        
-        if isinstance(grade, (int, float)):
-            total_score += grade
-        
-        # Calculate max possible from assessments that have been graded
-        course_max = 0
-        for a in data.get("scores", {}).get("assessments", []):
-            if a.get("score") and a.get("max_points"):
-                course_max += a["max_points"]
-        
-        total_max_possible += course_max
-        
-        # Calculate current percentage for this course
-        if isinstance(grade, (int, float)) and course_max > 0 and isinstance(ects, (int, float)):
-            pct = (grade / course_max) * 100
-            course_percentages.append((pct, ects))
-            total_ects_earned += ects
-    
-    # GPA calculation based on current percentages (weighted by ECTS, converted to 4.0 scale)
-    # 91-100 = 4.0, 81-90 = 3.0, 71-80 = 2.0, 61-70 = 1.0, 51-60 = 0.5, <51 = 0
-    weighted_gpa = 0
-    for pct, ects in course_percentages:
-        if pct >= 91:
-            gpa_points = 4.0
-        elif pct >= 81:
-            gpa_points = 3.0
-        elif pct >= 71:
-            gpa_points = 2.0
-        elif pct >= 61:
-            gpa_points = 1.0
-        elif pct >= 51:
-            gpa_points = 0.5
-        else:
-            gpa_points = 0.0
-        weighted_gpa += gpa_points * ects
-    
-    gpa = weighted_gpa / total_ects_earned if total_ects_earned > 0 else 0
-    # Color based on GPA (4.0 scale -> percentage)
-    gpa_pct = (gpa / 4.0) * 100
-    gpa_color = get_percentage_color(gpa_pct)
-    
-    # Score percentage
-    score_pct = (total_score / total_max_possible * 100) if total_max_possible > 0 else 0
-    score_color = get_percentage_color(score_pct)
-    # Omit badge for 0% and 100% since they're obvious
-    if total_max_possible > 0 and 0 < score_pct < 100:
-        score_pct_badge = f'<span class="pct-badge" style="background: {score_color}20; color: {score_color}">{score_pct:.0f}%</span>'
-    else:
-        score_pct_badge = ""
-    
-    return f'''<div class="summary">
-    <div class="summary-item">
-        <div class="summary-label">GPA</div>
-        <div class="summary-value" style="color: {gpa_color}">{gpa:.2f}</div>
-    </div>
-    <div class="summary-item">
-        <div class="summary-label">Total Score</div>
-        <div class="summary-value" style="color: {score_color}">{fmt_num(total_score)}/{fmt_num(total_max_possible)} {score_pct_badge}</div>
-    </div>
-    <div class="summary-item">
-        <div class="summary-label">Courses</div>
-        <div class="summary-value" style="color: #a78bfa">{course_count}</div>
-    </div>
-    <div class="summary-item">
-        <div class="summary-label">ECTS</div>
-        <div class="summary-value" style="color: #a78bfa">{fmt_num(total_ects_earned)}</div>
-    </div>
-</div>'''
+    total, max_total, ects, weighted = 0, 0, 0, 0
+    for c, d in data:
+        g, e = c["grade"], c["ects"]
+        if isinstance(g, (int, float)): total += g
+        cmax = sum(a["max_points"] for a in d.get("scores", {}).get("assessments", []) if a.get("score") and a.get("max_points"))
+        max_total += cmax
+        if isinstance(g, (int, float)) and cmax > 0 and isinstance(e, (int, float)):
+            p = g / cmax * 100
+            ects += e
+            gpa = 4.0 if p >= 91 else 3.0 if p >= 81 else 2.0 if p >= 71 else 1.0 if p >= 61 else 0.5 if p >= 51 else 0
+            weighted += gpa * e
+    gpa = weighted / ects if ects else 0
+    pct = total / max_total * 100 if max_total else 0
+    return f'''<div class="summary"><div class="summary-item"><div class="summary-label">GPA</div><div class="summary-value" style="color:{grade_color(gpa/4*100)}">{gpa:.2f}</div></div><div class="summary-item"><div class="summary-label">Total Score</div><div class="summary-value" style="color:{grade_color(pct)}">{fmt(total)}/{fmt(max_total)} {pct_badge(pct, grade_color(pct))}</div></div><div class="summary-item"><div class="summary-label">Courses</div><div class="summary-value" style="color:#a78bfa">{len(data)}</div></div><div class="summary-item"><div class="summary-label">ECTS</div><div class="summary-value" style="color:#a78bfa">{fmt(ects)}</div></div></div>'''
 
 
-def generate_html(courses_data: list[tuple[dict, dict]], total_ects: float | str | None = None) -> str:
-    """Generate HTML dashboard from template"""
-    with open("template.html", encoding="utf-8") as f:
-        template = f.read()
-    
-    courses_html = ""
-    for course, data in courses_data:
-        courses_html += generate_course_html(course, data)
-    
-    summary_html = generate_summary_html(courses_data, total_ects)
-    
-    return template.replace("{{COURSES}}", courses_html).replace("{{SUMMARY}}", summary_html)
+def generate_html(data: list[tuple[dict, dict]], base: Path) -> str:
+    return TEMPLATE.replace("{{COURSES}}", "".join(generate_course_html(c, d, base) for c, d in data)).replace("{{SUMMARY}}", generate_summary_html(data))
+
+
+def open_browser(url: str) -> None:
+    import webbrowser
+    # Check if running WSL
+    if os.path.exists('/proc/version') and 'microsoft' in Path('/proc/version').read_text().lower():
+        subprocess.run(['cmd.exe', '/c', 'start', url], stderr=subprocess.DEVNULL)
+    else: webbrowser.open(url)
 
 
 def serve_and_open(port: int = 1111) -> None:
-    import http.server
-    import socketserver
-    import webbrowser
-    
-    os.chdir(os.path.dirname(os.path.abspath(__file__)) or ".")
-    
-    handler = http.server.SimpleHTTPRequestHandler
-    handler.log_message = lambda self, *args: None  # type: ignore  # Suppress logs
-    
-    with socketserver.TCPServer(("", port), handler) as httpd:
-        url = f"http://localhost:{port}"
-        print(f"Serving at {url}")
-        
-        # Open browser
-        if "microsoft" in os.uname().release.lower():
-            subprocess.run(["cmd.exe", "/c", "start", url], capture_output=True)
-        else:
-            webbrowser.open(url)
-        
+    import http.server, socketserver
+    h = http.server.SimpleHTTPRequestHandler
+    h.log_message = lambda self, *args: None  # type: ignore
+    socketserver.TCPServer.allow_reuse_address = True
+    with socketserver.TCPServer(("", port), h) as s:
+        print(f"Serving at http://localhost:{port}")
+        open_browser(f"http://localhost:{port}")
+        try: s.serve_forever()
+        except KeyboardInterrupt: print("\nStopped"); exit()
+
+
+async def login() -> str:
+    """Open browser for user to login, return session cookie"""
+    try: from playwright.async_api import async_playwright
+    except: subprocess.run(["pip", "install", "playwright"], check=True); from playwright.async_api import async_playwright
+    print("Please login in the browser...")
+    async with async_playwright() as p:
         try:
-            httpd.serve_forever()
-        except KeyboardInterrupt:
-            print("\nServer stopped")
+            browser = await p.chromium.launch(headless=False)
+        except Exception:
+            print("Installing browser...")
+            import sys
+            subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
+            browser = await p.chromium.launch(headless=False)
+        page = await browser.new_page()
+        await page.goto("https://classroom.btu.edu.ge/login")
+        await page.wait_for_url("**/student/**", timeout=120000)
+        cookies = await page.context.cookies()
+        await browser.close()
+        return "; ".join(f"{c.get('name')}={c.get('value')}" for c in cookies)
+
+
+async def test_cookie(cookie: str) -> str:
+    try:
+        async with Http(cookie) as h:
+            html = str(await h.get(BASE_URL))
+            return html if parse_courses(html) else ""
+    except: 
+        return ""
+
+
+async def get_cookie() -> tuple[str, str]:
+    cfg = load_config()
+    if (c := cfg.get("cookie")) and (html := await test_cookie(c)): return c, html
+    if c: print("Cookie expired...")
+    c = await login()
+    save_config({**cfg, "cookie": c})
+    return c, await test_cookie(c)
+
+
+async def process_course(course: dict, html_base: Path, course_base: Path, http: Http) -> tuple[dict, dict]:
+    name = course['name']
+    html_folder, course_folder = html_base / name, course_base / name
+    try:
+        data = await fetch_course_pages(course, html_folder, course_folder, http)
+        if materials := data.get("materials"):
+            await download_materials(materials, course_folder / "material", http)
+        return course, data
+    except Exception as e:
+        print(f"  Error processing {name}: {e}")
+        return course, {}
+
+
+async def main():
+    cookie, html = await get_cookie()
+    courses = parse_courses(html)
+    if not courses:
+        print("No courses found")
+        save_config({k: v for k, v in load_config().items() if k != "cookie"})
+        return
+
+    async with Http(cookie) as http:
+        print(f"Fetching {len(courses)} courses...")
+        data: list[tuple[dict, dict]] = []
+        for i, course in enumerate(courses, 1):
+            print(f"  [{i}/{len(courses)}] {course['name']}")
+            try:
+                data.append(await process_course(course, APP_DIR / "html", APP_DIR / "courses", http))
+            except Exception as e:
+                print(f"    Error: {e}")
+                data.append((course, {}))
+
+    write_file(APP_DIR / "index.html", generate_html(data, APP_DIR / "courses"))
+    # Copy favicon to APP_DIR if it exists
+    icon_src = Path(__file__).parent / "btu.ico"
+    if icon_src.exists():
+        import shutil
+        shutil.copy(icon_src, APP_DIR / "btu.ico")
+    print(f"Generated {APP_DIR / 'index.html'}")
+    os.chdir(APP_DIR)
+    serve_and_open(1111)
 
 
 if __name__ == "__main__":
-    html = fetch(BASE_URL)
-    courses, total_ects = parse_courses(html)
+    asyncio.run(main())
 
-    courses_data = []
-    
-    for course in courses:
-        fetch_course_pages(course)
-        
-        html_folder = f"html/{course['name']}"
-        course_folder = f"courses/{course['name']}"
-        data = parse_course_data(html_folder)
-        
-        materials = data.get("materials", [])
-        if materials:
-            download_materials(materials, f"{course_folder}/material")
-        
-        courses_data.append((course, data))
-    
-    # Generate HTML dashboard
-    dashboard = generate_html(courses_data, total_ects)
-    with open("index.html", "w", encoding="utf-8") as f:
-        f.write(dashboard)
-    print("Generated index.html")
-    
-    serve_and_open(1111)
+# pyinstaller -n btu --onedir --clean --noupx --windowed --optimize 2 --icon btu.ico main.py
