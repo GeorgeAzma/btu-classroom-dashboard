@@ -292,15 +292,29 @@ def open_browser(url: str) -> None:
 
 
 def serve_and_open(port: int = 1111) -> None:
-    import http.server, socketserver
-    h = http.server.SimpleHTTPRequestHandler
-    h.log_message = lambda self, *args: None  # type: ignore
+    import http.server, socketserver, signal, sys
+
+    class QuietHandler(http.server.SimpleHTTPRequestHandler):
+        def log_message(self, format, *args): 
+            pass
+
+        def handle(self):
+            try: 
+                super().handle()
+            except BrokenPipeError: 
+                pass
+
+    def shutdown(*_):
+        print("\nStopped")
+        server.server_close()
+        sys.exit(0)
+
     socketserver.TCPServer.allow_reuse_address = True
-    with socketserver.TCPServer(("", port), h) as s:
-        print(f"Serving at http://localhost:{port}")
-        open_browser(f"http://localhost:{port}")
-        try: s.serve_forever()
-        except KeyboardInterrupt: print("\nStopped"); exit()
+    server = socketserver.TCPServer(("", port), QuietHandler)
+    signal.signal(signal.SIGINT, shutdown)
+    print(f"Serving at http://localhost:{port}")
+    open_browser(f"http://localhost:{port}")
+    server.serve_forever(poll_interval=0.1)
 
 
 async def login() -> str:

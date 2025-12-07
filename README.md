@@ -17,11 +17,11 @@ python3 main.py
 ## Easy Setup
 1. open command prompt and paste
 ``` bash
-curl -sSL -o run.bat "https://raw.githubusercontent.com/GeorgeAzma/btu-classroom-dashboard/main/run.bat" && cd btu-classroom-dashboard && run.bat
+curl -sSL -o run.bat "https://raw.githubusercontent.com/GeorgeAzma/btu-classroom-dashboard/main/run.bat" && run.bat
 ```
 
 ### Notes
 - Grades are updated every rerun
-- Stop the script by pressing `Ctrl + C` inside terminal `TODO: fix`
+- Stop the script by pressing `Ctrl + C` inside terminal
 - If you have a problem open Issue on GitHub, or comment on the post
 - It is safe to run and passwords are not stored
