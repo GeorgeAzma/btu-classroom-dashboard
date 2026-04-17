@@ -29,3 +29,4 @@ curl -sSL https://raw.githubusercontent.com/GeorgeAzma/btu-classroom-dashboard/m
 - Stop the script by pressing `Ctrl + C` inside terminal
 - If you have a problem open Issue on GitHub, or comment on the post
 - It is safe to run and passwords are not stored
+- You may need to install Git, You can do this using Command Prompt: `winget install Git.Git`
