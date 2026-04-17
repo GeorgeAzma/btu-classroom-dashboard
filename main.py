@@ -329,12 +329,8 @@ async def login() -> str:
     """Open browser for user to login, return session cookie"""
     try: from playwright.async_api import async_playwright
     except: subprocess.run(["pip", "install", "playwright"], check=True); from playwright.async_api import async_playwright
-    
+
     headless = not has_display()
-    if headless:
-        print("No display server detected, launching headless browser...")
-    print("Please login in the browser...")
-    
     async with async_playwright() as p:
         try:
             browser = await p.chromium.launch(headless=headless)
@@ -345,6 +341,16 @@ async def login() -> str:
             browser = await p.chromium.launch(headless=headless)
         page = await browser.new_page()
         await page.goto("https://classroom.btu.edu.ge/login")
+        if headless:
+            import getpass
+            print("No display server detected. Enter your BTU credentials:")
+            username = input("Username: ")
+            password = getpass.getpass("Password: ")
+            await page.locator('input[name="username"], input[type="email"], input[name="email"]').fill(username)
+            await page.locator('input[type="password"]').fill(password)
+            await page.locator('button[type="submit"], input[type="submit"]').click()
+        else:
+            print("Please login in the browser...")
         await page.wait_for_url("**/student/**", timeout=120000)
         cookies = await page.context.cookies()
         await browser.close()
