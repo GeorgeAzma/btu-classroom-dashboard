@@ -283,6 +283,14 @@ def generate_html(data: list[tuple[dict, dict]], base: Path) -> str:
     return TEMPLATE.replace("{{COURSES}}", "".join(generate_course_html(c, d, base) for c, d in data)).replace("{{SUMMARY}}", generate_summary_html(data))
 
 
+def has_display() -> bool:
+    """Check if a display server is available; on Linux returns False when no DISPLAY/WAYLAND_DISPLAY is set"""
+    import sys
+    if sys.platform.startswith('linux'):
+        return bool(os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY'))
+    return True
+
+
 def open_browser(url: str) -> None:
     import webbrowser
     # Check if running WSL
@@ -321,15 +329,19 @@ async def login() -> str:
     """Open browser for user to login, return session cookie"""
     try: from playwright.async_api import async_playwright
     except: subprocess.run(["pip", "install", "playwright"], check=True); from playwright.async_api import async_playwright
-    print("Please login in the browser...")
+    headless = not has_display()
+    if headless:
+        print("No display server detected, launching headless browser...")
+    else:
+        print("Please login in the browser...")
     async with async_playwright() as p:
         try:
-            browser = await p.chromium.launch(headless=False)
+            browser = await p.chromium.launch(headless=headless)
         except Exception:
             print("Installing browser...")
             import sys
             subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
-            browser = await p.chromium.launch(headless=False)
+            browser = await p.chromium.launch(headless=headless)
         page = await browser.new_page()
         await page.goto("https://classroom.btu.edu.ge/login")
         await page.wait_for_url("**/student/**", timeout=120000)
