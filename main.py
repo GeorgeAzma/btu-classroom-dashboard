@@ -332,13 +332,20 @@ async def login() -> str:
 
     headless = not has_display()
     async with async_playwright() as p:
-        try:
-            browser = await p.chromium.launch(headless=headless)
-        except Exception:
-            print("Installing browser...")
-            import sys
-            subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
-            browser = await p.chromium.launch(headless=headless)
+        browser = None
+        for attempt in range(3):
+            try:
+                browser = await p.chromium.launch(headless=headless)
+                break
+            except Exception:
+                if attempt == 0:
+                    print("Installing browser...")
+                    import sys
+                    subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
+                elif attempt == 1 and not headless:
+                    headless = True
+                else:
+                    raise
         page = await browser.new_page()
         await page.goto("https://classroom.btu.edu.ge/login")
         if headless:
