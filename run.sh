@@ -46,6 +46,8 @@ if [ -f "main.py" ]; then
     fi
     source .venv/bin/activate
     pip install -r requirements.txt
+    echo "Checking playwright browser..."
+    python3 -m playwright install chromium
     python3 main.py
     exit $?
 fi

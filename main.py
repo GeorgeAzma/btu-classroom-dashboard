@@ -325,25 +325,49 @@ def serve_and_open(port: int = 1111) -> None:
     server.serve_forever(poll_interval=0.1)
 
 
+def find_system_chromium() -> str | None:
+    """Return path to a system-installed Chromium/Chrome binary, or None."""
+    candidates = ["chromium-browser", "chromium", "google-chrome", "google-chrome-stable"]
+    for name in candidates:
+        try:
+            result = subprocess.run(["which", name], capture_output=True, text=True)
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+        except Exception:
+            pass
+    return None
+
+
 async def login() -> str:
     """Open browser for user to login, return session cookie"""
     try: from playwright.async_api import async_playwright
     except: subprocess.run(["pip", "install", "playwright"], check=True); from playwright.async_api import async_playwright
 
     headless = not has_display()
+    system_chromium = find_system_chromium()
+
     async with async_playwright() as p:
         browser = None
+        launch_kwargs: dict = {"headless": headless}
+        if system_chromium:
+            launch_kwargs["executable_path"] = system_chromium
+
         for attempt in range(3):
             try:
-                browser = await p.chromium.launch(headless=headless)
+                browser = await p.chromium.launch(**launch_kwargs)
                 break
             except Exception:
-                if attempt == 0:
+                if attempt == 0 and not system_chromium:
                     print("Installing browser...")
                     import sys
                     subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
+                elif attempt == 0 and system_chromium:
+                    # System chromium failed, fall back to playwright-managed binary
+                    system_chromium = None
+                    launch_kwargs.pop("executable_path", None)
                 elif attempt == 1 and not headless:
                     headless = True
+                    launch_kwargs["headless"] = True
                 else:
                     raise
         page = await browser.new_page()
