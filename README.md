@@ -19,6 +19,10 @@ python3 main.py
 ``` bash
 curl -sSL -o run.bat "https://raw.githubusercontent.com/GeorgeAzma/btu-classroom-dashboard/main/run.bat" && run.bat
 ```
+#### Linux
+``` bash
+curl -sSL https://raw.githubusercontent.com/GeorgeAzma/btu-classroom-dashboard/main/run.sh | bash
+```
 
 ### Notes
 - Grades are updated every rerun
