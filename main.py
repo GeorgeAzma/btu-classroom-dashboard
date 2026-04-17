@@ -329,11 +329,12 @@ async def login() -> str:
     """Open browser for user to login, return session cookie"""
     try: from playwright.async_api import async_playwright
     except: subprocess.run(["pip", "install", "playwright"], check=True); from playwright.async_api import async_playwright
+    
     headless = not has_display()
     if headless:
         print("No display server detected, launching headless browser...")
-    else:
-        print("Please login in the browser...")
+    print("Please login in the browser...")
+    
     async with async_playwright() as p:
         try:
             browser = await p.chromium.launch(headless=headless)
