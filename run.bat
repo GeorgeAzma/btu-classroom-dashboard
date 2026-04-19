@@ -32,7 +32,7 @@ if not exist "main.py" if not exist ".git" (
     git clone %REPO_URL%
     cd %REPO_NAME%
     if exist "run.bat" (
-        call run.bat
+        call run.bat %*
         exit /b %errorlevel%
     ) else (
         echo run.bat not found in repo. Exiting.
@@ -43,15 +43,19 @@ if not exist "main.py" if not exist ".git" (
 
 :: In repo folder (main.py exists)
 if exist "main.py" (
+    set "VENV_CREATED=0"
     if not exist ".venv" (
         echo Creating virtual environment...
         python -m venv .venv
+        set "VENV_CREATED=1"
     )
     echo Activating virtual environment...
     call .venv\Scripts\activate.bat
-    echo Installing requirements...
-    pip install -r requirements.txt
-    python main.py
+    if "%VENV_CREATED%"=="1" (
+        echo Installing requirements...
+        pip install -r requirements.txt
+    )
+    python main.py %*
     exit /b %errorlevel%
 )
 

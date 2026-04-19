@@ -30,7 +30,7 @@ if [ ! -f "main.py" ] && [ ! -d ".git" ]; then
     git clone "$REPO_URL"
     cd "$REPO_NAME" || exit 1
     if [ -f "run.sh" ]; then
-        exec bash run.sh
+        exec bash run.sh "$@"
     else
         echo "run.sh not found in repo. Exiting."
         exit 1
@@ -40,13 +40,17 @@ fi
 
 # In repo folder (main.py exists)
 if [ -f "main.py" ]; then
+    venv_created=0
     if [ ! -d ".venv" ]; then
         echo "Creating virtual environment..."
         python3 -m venv .venv
+        venv_created=1
     fi
     source .venv/bin/activate
-    pip install -r requirements.txt
-    python3 main.py
+    if [ "$venv_created" -eq 1 ]; then
+        pip install -r requirements.txt
+    fi
+    python3 main.py "$@"
     exit $?
 fi
 
