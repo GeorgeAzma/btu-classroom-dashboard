@@ -5,6 +5,7 @@ import aiohttp
 
 APP_DIR = (Path(os.environ.get('APPDATA', Path.home())) if os.name == 'nt' else Path.home() / '.config') / 'btu-dashboard'
 BASE_URL = "https://classroom.btu.edu.ge/en/student/me/courses"
+SCHEDULE_URL = "https://classroom.btu.edu.ge/en/student/me/schedule"
 HEADERS = {"User-Agent": "Mozilla/5.0", "Accept": "text/html,*/*;q=0.8"}
 
 def load_config():
@@ -20,7 +21,62 @@ def parse_num(td):
     try: return float(td.get_text(strip=True).replace(",", "."))
     except: return td.get_text(strip=True)
 
-TEMPLATE = '''<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="btu.ico" type="image/x-icon"><title>BTU Courses</title><style>*{margin:0;padding:0;box-sizing:border-box}::-webkit-scrollbar{display:none}html{scrollbar-width:none}body{font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:linear-gradient(135deg,#0c0c0c,#1a1a2e);color:#e4e4e7;min-height:100vh;padding:2rem}.courses{display:grid;grid-template-columns:repeat(2,1fr);gap:1rem;max-width:1400px;margin:0 auto}@media(max-width:900px){.courses{grid-template-columns:1fr}}.course{background:#18181b;border-radius:12px;padding:1.25rem;border:1px solid #27272a;display:flex;flex-direction:column;gap:.75rem}.course:hover{border-color:#3f3f46}.course-header{display:flex;justify-content:space-between;align-items:flex-start;gap:1rem}.course-info{flex:1}.course-name{font-size:1.1rem;font-weight:600;color:#fafafa;margin-bottom:.25rem}.course-meta{font-size:.85rem;color:#71717a}.ects{font-size:.7rem;padding:.25rem .6rem;background:rgba(139,92,246,.2);color:#a78bfa;border-radius:4px;font-weight:500}.syllabus-link{font-size:.7rem;padding:.25rem .6rem;background:rgba(59,130,246,.15);color:#60a5fa;border-radius:4px;font-weight:500;text-decoration:none;transition:.15s}.syllabus-link:hover{background:rgba(59,130,246,.25);color:#93c5fd}.grade{font-size:2rem;font-weight:700;font-variant-numeric:tabular-nums;line-height:1;display:flex;align-items:center;gap:.5rem}.pct-badge{font-size:.65rem;padding:.2rem .45rem;border-radius:4px;font-weight:600;opacity:.9}.assessments{display:flex;flex-wrap:wrap;gap:.5rem}.assessment{display:inline-flex;align-items:center;gap:.5rem;font-size:.8rem;padding:.35rem .6rem;background:#27272a;border-radius:6px}.assessment-name{color:#a1a1aa}.assessment-score{color:#4ade80;font-weight:600;font-variant-numeric:tabular-nums}.assessment-score.empty{color:#52525b}.materials-section{border-top:1px solid #27272a;padding-top:.75rem}.materials-toggle{display:flex;align-items:center;gap:.5rem;font-size:.85rem;color:#71717a;cursor:pointer;user-select:none}.materials-toggle:hover{color:#a1a1aa}.materials-toggle .arrow{transition:transform .2s}.materials-section.expanded .materials-toggle .arrow{transform:rotate(90deg)}.materials{display:none;flex-direction:column;gap:.4rem;margin-top:.75rem}.materials-section.expanded .materials{display:flex}.material{font-size:.85rem;padding:.5rem .75rem;background:rgba(59,130,246,.1);color:#60a5fa;text-decoration:none;border-radius:6px;transition:.15s;display:block}.material:hover{background:rgba(59,130,246,.2);color:#93c5fd}.material::before{content:"↓ ";opacity:.5}.summary{grid-column:1/-1;background:linear-gradient(135deg,#18181b,#1f1f23);border-radius:12px;padding:1.5rem;border:1px solid #27272a;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1.5rem}.summary-item{text-align:center}.summary-label{font-size:.75rem;color:#71717a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.5rem}.summary-value{font-size:1.75rem;font-weight:700;font-variant-numeric:tabular-nums;display:flex;align-items:center;justify-content:center;gap:.5rem}</style></head><body><div class="courses">{{COURSES}}{{SUMMARY}}</div><script>document.querySelectorAll('.materials-toggle').forEach(t=>t.addEventListener('click',()=>t.closest('.materials-section').classList.toggle('expanded')))</script></body></html>'''
+
+def clean_text(node) -> str:
+    return node.get_text(" ", strip=True) if node else ""
+
+
+def parse_time_range(value: str) -> tuple[int, int] | None:
+    match = re.match(r'^(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})$', value)
+    if not match:
+        return None
+    start = int(match.group(1)) * 60 + int(match.group(2))
+    end = int(match.group(3)) * 60 + int(match.group(4))
+    return start, end
+
+
+def format_time(minutes: int) -> str:
+    return f"{minutes // 60:02d}:{minutes % 60:02d}"
+
+
+def merge_schedule_entries(entries: list[dict]) -> list[dict]:
+    merged: list[dict] = []
+
+    for entry in entries:
+        current_range = parse_time_range(entry.get("time", ""))
+        if not merged or not current_range:
+            copied = dict(entry)
+            copied["_slot_end"] = current_range[1] if current_range else None
+            merged.append(copied)
+            continue
+
+        previous = merged[-1]
+        previous_range = parse_time_range(previous.get("time", ""))
+        same_course = all(
+            previous.get(key) == entry.get(key)
+            for key in ("day", "room", "course", "group", "lecturers", "notes")
+        )
+
+        if previous_range and same_course and previous.get("_slot_end") is not None and previous["_slot_end"] + 10 == current_range[0]:
+            previous["_slot_end"] = current_range[1]
+            display_end = previous["_slot_end"] + 10
+            previous["time"] = f"{format_time(previous_range[0])} - {format_time(display_end)}"
+            continue
+
+        copied = dict(entry)
+        copied["_slot_end"] = current_range[1]
+        merged.append(copied)
+
+    for entry in merged:
+        entry.pop("_slot_end", None)
+
+    return merged
+
+def generate_tabs_html() -> str:
+    return '''<div class="tabs" role="tablist" aria-label="Dashboard sections"><button class="tab-button active" type="button" data-tab="grades" role="tab" aria-selected="true">Grades</button><button class="tab-button" type="button" data-tab="calendar" role="tab" aria-selected="false">Calendar</button><button class="tab-button" type="button" data-tab="exams" role="tab" aria-selected="false">Exams</button></div>'''
+
+
+TEMPLATE = (Path(__file__).with_name("template.html").read_text(encoding="utf-8"))
 
 class Http:
     """Simple async HTTP client with connection pooling"""
@@ -63,17 +119,101 @@ def parse_courses(html):
     return courses
 
 
+def parse_schedule(html: str) -> dict:
+    soup = BeautifulSoup(html, "html.parser")
+    table = soup.select_one("table#groups")
+    if not table:
+        return {"semester": None, "days": [], "entries": []}
+
+    semester = clean_text(soup.select_one(".custom_pre_tag")) or None
+    days: list[dict] = []
+    entries: list[dict] = []
+    current_day: dict | None = None
+
+    for tr in table.select("tbody tr"):
+        if tr.find("h4"):
+            if current_day:
+                days.append(current_day)
+            current_day = {"day": clean_text(tr.find("h4")), "entries": []}
+            continue
+
+        cells = tr.find_all("td")
+        if len(cells) != 6:
+            continue
+
+        row = [clean_text(cell) for cell in cells]
+        if row[0].lower() in ("დრო", "time") or row[2].lower() in ("კურსის დასახელება", "course name"):
+            continue
+        if not current_day or not row[0]:
+            continue
+
+        entry = {
+            "day": current_day["day"],
+            "time": row[0],
+            "room": row[1],
+            "course": row[2],
+            "group": row[3],
+            "lecturers": row[4],
+            "notes": row[5],
+        }
+        current_day["entries"].append(entry)
+        entries.append(entry)
+
+    if current_day:
+        days.append(current_day)
+
+    for day in days:
+        day["entries"] = merge_schedule_entries(day["entries"])
+
+    entries = merge_schedule_entries(entries)
+
+    return {"semester": semester, "days": days, "entries": entries}
+
+
+def parse_exams(html: str) -> dict:
+    soup = BeautifulSoup(html, "html.parser")
+    table = soup.select_one("table")
+    if not table:
+        return {"title": None, "entries": []}
+
+    entries: list[dict] = []
+    for tr in table.select("tbody tr"):
+        cells = [clean_text(cell) for cell in tr.find_all("td")]
+        if len(cells) != 6:
+            continue
+        if cells[0].lower() in ("საგანი", "subject") or cells[1].lower() in ("დღე", "date"):
+            continue
+
+        entries.append({
+            "subject": cells[0],
+            "date": cells[1],
+            "time": cells[2],
+            "room": cells[3],
+            "seat": cells[4],
+            "format": cells[5],
+        })
+
+    return {"title": "Exam Schedule", "entries": entries}
+
+
 def extract_course_urls(html: str) -> dict[str, str]:
     soup = BeautifulSoup(html, "html.parser")
     urls = {}
 
-    if tabs := soup.select_one("#course_tabs"):
-        for a in tabs.find_all("a", href=True):
-            for key in ("silabus", "groups", "scores", "files"):
-                if key in a["href"]: 
-                    urls[key.replace("silabus", "syllabus")] = a["href"]
-                    
-    if sf := soup.select_one('a[href*="courseSilabusFile"]'): 
+    anchors = soup.select("a[href]")
+    for a in anchors:
+        href = a["href"]
+        text = a.get_text(" ", strip=True).lower()
+        for key, needles in {
+            "syllabus": ("silabus", "syllabus"),
+            "groups": ("groups",),
+            "scores": ("scores",),
+            "files": ("files", "materials", "training materials"),
+        }.items():
+            if any(needle in href.lower() or needle in text for needle in needles):
+                urls[key] = href
+
+    if sf := soup.select_one('a[href*="courseSilabusFile"]'):
         urls["syllabus_file"] = sf["href"]
 
     return urls
@@ -121,7 +261,14 @@ def parse_files(html: str, my_lector: str | None = None) -> list[dict]:
     materials = []
     current_lector = None
 
-    if not (table := soup.select_one("#files")): 
+    table = soup.select_one("#files")
+    if not table:
+        for candidate in soup.find_all("table"):
+            if candidate.select_one('a[href*="/uploads/"]'):
+                table = candidate
+                break
+
+    if not table:
         return materials
 
     for tr in table.find_all("tr"):
@@ -279,8 +426,18 @@ def generate_summary_html(data: list[tuple[dict, dict]]) -> str:
     return f'''<div class="summary"><div class="summary-item"><div class="summary-label">GPA</div><div class="summary-value" style="color:{grade_color(gpa/4*100)}">{gpa:.2f}</div></div><div class="summary-item"><div class="summary-label">Total Score</div><div class="summary-value" style="color:{grade_color(pct)}">{fmt(total)}/{fmt(max_total)} {pct_badge(pct, grade_color(pct))}</div></div><div class="summary-item"><div class="summary-label">Courses</div><div class="summary-value" style="color:#a78bfa">{len(data)}</div></div><div class="summary-item"><div class="summary-label">ECTS</div><div class="summary-value" style="color:#a78bfa">{fmt(ects)}</div></div></div>'''
 
 
-def generate_html(data: list[tuple[dict, dict]], base: Path) -> str:
-    return TEMPLATE.replace("{{COURSES}}", "".join(generate_course_html(c, d, base) for c, d in data)).replace("{{SUMMARY}}", generate_summary_html(data))
+def generate_html(data: list[tuple[dict, dict]], base: Path, schedule: dict) -> str:
+    schedule_json = json.dumps(schedule, ensure_ascii=False).replace("</", "<\\/")
+    exams_json = json.dumps(schedule.get("exams", {"title": None, "entries": []}), ensure_ascii=False).replace("</", "<\\/")
+    return (
+        TEMPLATE.replace("{{TABS}}", generate_tabs_html())
+        .replace("{{COURSES}}", "".join(generate_course_html(c, d, base) for c, d in data))
+        .replace("{{SUMMARY}}", generate_summary_html(data))
+        .replace("{{COURSE_COUNT}}", str(len(data)))
+        .replace("{{SCHEDULE_SEMESTER}}", schedule.get("semester") or "Schedule")
+        .replace("{{SCHEDULE_JSON}}", schedule_json)
+        .replace("{{EXAMS_JSON}}", exams_json)
+    )
 
 
 def open_browser(url: str) -> None:
@@ -377,7 +534,31 @@ async def main():
         save_config({k: v for k, v in load_config().items() if k != "cookie"})
         return
 
+    schedule = {"semester": None, "days": [], "entries": [], "exams": {"title": None, "entries": []}}
+    APP_DIR.mkdir(parents=True, exist_ok=True)
+
     async with Http(cookie) as http:
+        try:
+            schedule_html = str(await http.get(SCHEDULE_URL))
+            schedule = parse_schedule(schedule_html)
+            html_dir = APP_DIR / "html"
+            html_dir.mkdir(parents=True, exist_ok=True)
+            write_file(html_dir / "schedule.html", schedule_html)
+            write_file(APP_DIR / "schedule.json", json.dumps(schedule, ensure_ascii=False, indent=2))
+            print(f"Extracted schedule: {len(schedule['days'])} days, {len(schedule['entries'])} classes")
+        except Exception as e:
+            print(f"Schedule extraction failed: {e}")
+
+        try:
+            exams_html = str(await http.get("https://classroom.btu.edu.ge/en/exams/list"))
+            exams = parse_exams(exams_html)
+            schedule["exams"] = exams
+            write_file(html_dir / "exams.html", exams_html)
+            write_file(APP_DIR / "exams.json", json.dumps(exams, ensure_ascii=False, indent=2))
+            print(f"Extracted exams: {len(exams['entries'])} items")
+        except Exception as e:
+            print(f"Exams extraction failed: {e}")
+
         print(f"Fetching {len(courses)} courses...")
         data: list[tuple[dict, dict]] = []
         for i, course in enumerate(courses, 1):
@@ -388,7 +569,7 @@ async def main():
                 print(f"    Error: {e}")
                 data.append((course, {}))
 
-    write_file(APP_DIR / "index.html", generate_html(data, APP_DIR / "courses"))
+    write_file(APP_DIR / "index.html", generate_html(data, APP_DIR / "courses", schedule))
     # Copy favicon to APP_DIR if it exists
     icon_src = Path(__file__).parent / "btu.ico"
     if icon_src.exists():

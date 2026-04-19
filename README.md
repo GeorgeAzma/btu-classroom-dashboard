@@ -1,7 +1,7 @@
 ![BTU Dashboard](btu.png)
 
 # BTU Classroom Dashboard
-Personal dashboard for BTU Classroom. Shows courses, grades, materials.
+Personal dashboard for BTU Classroom. Shows courses, grades, materials, calendar, exams.
 
 ## Manual Setup
 1. open terminal in your chosen folder and copy-paste these commands

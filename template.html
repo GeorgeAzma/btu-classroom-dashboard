@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <link rel="icon" href="btu.ico" type="image/x-icon">
+    <title>BTU Classroom Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box
+        }
+
+        ::-webkit-scrollbar {
+            display: none
+        }
+
+        html {
+            scrollbar-width: none
+        }
+
+        body {
+            font-family: sans-serif;
+            background: linear-gradient(180deg, #0b0d11 0%, #0f1116 100%);
+            color: #d7dae0;
+            min-height: 100vh;
+            padding: 1.5rem
+        }
+
+        .dashboard {
+            max-width: 1500px;
+            margin: 0 auto
+        }
+
+        .shell {
+            background: #111318;
+            border: 0;
+            border-radius: 28px;
+            padding: 1.15rem;
+            position: relative;
+            overflow: hidden
+        }
+
+        .tabs {
+            display: flex;
+            gap: .6rem;
+            flex-wrap: wrap;
+            padding: 0 0 1rem
+        }
+
+        .tab-button {
+            border: 0;
+            background: rgba(255, 255, 255, .05);
+            color: #aab2bf;
+            border-radius: 999px;
+            padding: .78rem 1.1rem;
+            font: 600 .92rem/1.1 inherit;
+            letter-spacing: .01em;
+            cursor: pointer;
+            transition: transform .15s ease, background .15s ease, color .15s ease, box-shadow .15s ease
+        }
+
+        .tab-button:hover {
+            transform: translateY(-1px);
+            background: rgba(255, 255, 255, .08);
+            color: #eef2f7
+        }
+
+        .tab-button.active {
+            background: linear-gradient(135deg, #4ea1ff, #3577ff);
+            color: #fff;
+        }
+
+        .panel {
+            display: none;
+            animation: fadeUp .22s ease
+        }
+
+        .panel.active {
+            display: block
+        }
+
+        @keyframes fadeUp {
+            from {
+                opacity: 0;
+                transform: translateY(8px)
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0)
+            }
+        }
+
+        .courses {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1rem;
+            max-width: 1400px;
+            margin: 0 auto
+        }
+
+        @media(max-width:900px) {
+            .courses {
+                grid-template-columns: 1fr
+            }
+        }
+
+        .course {
+            background: rgba(255, 255, 255, .04);
+            border-radius: 20px;
+            padding: 1.1rem;
+            border: 0;
+            display: flex;
+            flex-direction: column;
+            gap: .75rem
+        }
+
+        .course-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 1rem
+        }
+
+        .course-info {
+            flex: 1
+        }
+
+        .course-name {
+            font-size: 1.04rem;
+            font-weight: 700;
+            color: #f7f9fc;
+            margin-bottom: .25rem
+        }
+
+        .course-meta {
+            font-size: .86rem;
+            color: #96a0af
+        }
+
+        .ects {
+            font-size: .72rem;
+            padding: .28rem .62rem;
+            background: rgba(117, 87, 255, .16);
+            color: #cdbdff;
+            border-radius: 999px;
+            font-weight: 700;
+            white-space: nowrap;
+            border: 0
+        }
+
+        .syllabus-link {
+            font-size: .72rem;
+            padding: .28rem .62rem;
+            background: rgba(78, 161, 255, .14);
+            color: #a8d2ff;
+            border-radius: 999px;
+            font-weight: 700;
+            text-decoration: none;
+            transition: .15s;
+            white-space: nowrap;
+            border: 0
+        }
+
+        .syllabus-link:hover {
+            background: rgba(78, 161, 255, .22);
+            color: #fff
+        }
+
+        .grade {
+            font-size: 2rem;
+            font-weight: 800;
+            font-variant-numeric: tabular-nums;
+            line-height: 1;
+            display: flex;
+            align-items: center;
+            gap: .5rem
+        }
+
+        .pct-badge {
+            font-size: .65rem;
+            padding: .2rem .45rem;
+            border-radius: 999px;
+            font-weight: 800;
+            opacity: .95
+        }
+
+        .assessments {
+            display: flex;
+            flex-wrap: wrap;
+            gap: .5rem
+        }
+
+        .assessment {
+            display: inline-flex;
+            align-items: center;
+            gap: .5rem;
+            font-size: .8rem;
+            padding: .38rem .64rem;
+            background: rgba(255, 255, 255, .05);
+            border-radius: 999px;
+            border: 0
+        }
+
+        .assessment-name {
+            color: #cdd3dd
+        }
+
+        .assessment-score {
+            color: #7be08e;
+            font-weight: 800;
+            font-variant-numeric: tabular-nums
+        }
+
+        .assessment-score.empty {
+            color: #687282
+        }
+
+        .materials-section {
+            border-top: 0;
+            padding-top: .75rem
+        }
+
+        .materials-toggle {
+            display: flex;
+            align-items: center;
+            gap: .5rem;
+            font-size: .85rem;
+            color: #97a1af;
+            cursor: pointer;
+            user-select: none
+        }
+
+        .materials-toggle:hover {
+            color: #d5dbe5
+        }
+
+        .materials-toggle .arrow {
+            transition: transform .2s
+        }
+
+        .materials-section.expanded .materials-toggle .arrow {
+            transform: rotate(90deg)
+        }
+
+        .materials {
+            display: none;
+            flex-direction: column;
+            gap: .45rem;
+            margin-top: .75rem
+        }
+
+        .materials-section.expanded .materials {
+            display: flex
+        }
+
+        .material {
+            font-size: .85rem;
+            padding: .56rem .78rem;
+            background: rgba(255, 255, 255, .05);
+            color: #a9d5ff;
+            text-decoration: none;
+            border-radius: 14px;
+            transition: .15s;
+            display: block;
+            border: 0
+        }
+
+        .material:hover {
+            background: rgba(255, 255, 255, .08);
+            color: #fff
+        }
+
+        .material::before {
+            content: "↓ ";
+            opacity: .45
+        }
+
+        .summary {
+            grid-column: 1/-1;
+            background: rgba(255, 255, 255, .04);
+            border-radius: 20px;
+            padding: 1.15rem;
+            border: 0;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1rem
+        }
+
+        .summary-item {
+            text-align: center
+        }
+
+        .summary-label {
+            font-size: .72rem;
+            color: #97a1af;
+            text-transform: uppercase;
+            letter-spacing: .08em;
+            margin-bottom: .45rem
+        }
+
+        .summary-value {
+            font-size: 1.7rem;
+            font-weight: 800;
+            font-variant-numeric: tabular-nums;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: .5rem
+        }
+
+        .calendar-shell {
+            display: grid;
+            gap: 1rem
+        }
+
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1rem
+        }
+
+        .day-card {
+            background: rgba(255, 255, 255, .04);
+            border: 0;
+            border-radius: 20px;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: .75rem;
+            min-height: 220px
+        }
+
+        .day-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            gap: .75rem
+        }
+
+        .day-title {
+            font-size: 1rem;
+            font-weight: 750;
+            color: #f7f9fc;
+            text-align: center;
+            width: 100%
+        }
+
+        .events {
+            display: flex;
+            flex-direction: column;
+            gap: .65rem
+        }
+
+        .event {
+            padding: .78rem .82rem;
+            border-radius: 16px;
+            background: rgba(255, 255, 255, .045);
+            border: 0
+        }
+
+        .event-time {
+            font-size: .75rem;
+            font-weight: 800;
+            letter-spacing: .03em;
+            color: #92c7ff;
+            margin-bottom: .35rem
+        }
+
+        .event-course {
+            font-size: .9rem;
+            font-weight: 750;
+            color: #f7f9fc;
+            line-height: 1.25
+        }
+
+        .event-meta {
+            margin-top: .4rem;
+            font-size: .8rem;
+            color: #cdd3dd;
+            display: flex;
+            flex-wrap: wrap;
+            gap: .45rem
+        }
+
+        .event-pill {
+            padding: .2rem .45rem;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, .06)
+        }
+
+        .empty-state {
+            padding: 1.5rem;
+            border: 0;
+            border-radius: 16px;
+            color: #97a1af;
+            text-align: center;
+            background: rgba(255, 255, 255, .04)
+        }
+
+        .exams-shell {
+            display: grid;
+            gap: 1rem
+        }
+
+        .exams-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 1rem
+        }
+
+        .exam-day-card {
+            background: rgba(255, 255, 255, .04);
+            border: 0;
+            border-radius: 20px;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: .75rem
+        }
+
+        .exam-day-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            gap: .75rem
+        }
+
+        .exam-day-title {
+            font-size: 1rem;
+            font-weight: 750;
+            color: #f7f9fc;
+            text-align: center;
+            width: 100%
+        }
+
+        .exam-date {
+            display: inline-flex;
+            align-items: center;
+            gap: .45rem;
+            padding: .35rem .55rem;
+            border-radius: 999px;
+            background: rgba(82, 196, 120, .14);
+            color: #9ad9aa;
+            font-size: .72rem;
+            font-weight: 800;
+            white-space: nowrap
+        }
+
+        .exam-list {
+            display: flex;
+            flex-direction: column;
+            gap: .65rem
+        }
+
+        .exam-item {
+            padding: .78rem .82rem;
+            border-radius: 16px;
+            background: rgba(255, 255, 255, .045);
+            border: 0
+        }
+
+        .exam-item-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: .75rem
+        }
+
+        .exam-item-subject {
+            font-size: .95rem;
+            font-weight: 750;
+            color: #f7f9fc;
+            line-height: 1.25
+        }
+
+        .exam-item-time {
+            font-size: .75rem;
+            font-weight: 800;
+            letter-spacing: .03em;
+            color: #92c7ff;
+            white-space: nowrap
+        }
+
+        .exam-item-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: .45rem;
+            margin-top: .4rem;
+            font-size: .8rem;
+            color: #cdd3dd
+        }
+
+        .exam-item-pill {
+            padding: .2rem .45rem;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, .06);
+            color: #cdd3dd;
+            font-size: .78rem
+        }
+    </style>
+</head>
+
+<body>
+    <div class="dashboard">
+        <div class="shell">
+            {{TABS}}
+            <section class="panel active" id="panel-grades" data-panel="grades">
+                <div class="courses">{{COURSES}}{{SUMMARY}}</div>
+            </section>
+            <section class="panel" id="panel-calendar" data-panel="calendar">
+                <div id="calendar-root" class="calendar-shell"></div>
+            </section>
+            <section class="panel" id="panel-exams" data-panel="exams">
+                <div id="exams-root" class="exams-shell"></div>
+            </section>
+        </div>
+    </div>
+    <script type="application/json" id="schedule-data">{{SCHEDULE_JSON}}</script>
+    <script type="application/json" id="exams-data">{{EXAMS_JSON}}</script>
+    <script>
+        const scheduleData = JSON.parse(document.getElementById('schedule-data').textContent || '{}');
+        const examsData = JSON.parse(document.getElementById('exams-data').textContent || '{}');
+
+        function setActiveTab(tab) {
+            document.querySelectorAll('.tab-button').forEach(button => {
+                const active = button.dataset.tab === tab;
+                button.classList.toggle('active', active);
+                button.setAttribute('aria-selected', String(active));
+            });
+            document.querySelectorAll('.panel').forEach(panel => panel.classList.toggle('active', panel.dataset.panel === tab));
+            if (tab === 'calendar') {
+                renderCalendar();
+            }
+            if (tab === 'exams') {
+                renderExams();
+            }
+        }
+
+        function renderCalendar() {
+            const root = document.getElementById('calendar-root');
+            if (!root || root.dataset.rendered === '1') return;
+            const days = (scheduleData && scheduleData.days) || [];
+            if (!days.length) {
+                root.innerHTML = '<div class="empty-state">No schedule was found for this semester.</div>';
+                root.dataset.rendered = '1';
+                return;
+            }
+            root.innerHTML = '<div class="calendar-grid">' + days.map(day => {
+                const entries = (day.entries || []).map(entry => '<div class="event"><div class="event-time">' + entry.time + '</div><div class="event-course">' + entry.course + '</div><div class="event-meta">' + (entry.room ? '<span class="event-pill">Room ' + entry.room + '</span>' : '') + (entry.group ? '<span class="event-pill">' + entry.group + '</span>' : '') + (entry.lecturers ? '<span class="event-pill">' + entry.lecturers + '</span>' : '') + '</div></div>').join('');
+                return '<div class="day-card"><div class="day-head"><div class="day-title">' + day.day + '</div></div><div class="events">' + (entries || '<div class="empty-state">No classes</div>') + '</div></div>';
+            }).join('') + '</div>';
+            root.dataset.rendered = '1';
+        }
+
+        function renderExams() {
+            const root = document.getElementById('exams-root');
+            if (!root || root.dataset.rendered === '1') return;
+            const entries = (examsData && examsData.entries) || [];
+            if (!entries.length) {
+                root.innerHTML = '<div class="empty-state">No exams were found for this semester.</div>';
+                root.dataset.rendered = '1';
+                return;
+            }
+            const grouped = {};
+            const order = [];
+            entries.forEach(entry => {
+                const key = entry.date || 'Unknown date';
+                if (!grouped[key]) {
+                    grouped[key] = [];
+                    order.push(key);
+                }
+                grouped[key].push(entry);
+            });
+            root.innerHTML = '<div class="exams-grid">' + order.map(date => {
+                const dayEntries = grouped[date];
+                const items = dayEntries.map(entry => {
+                    const pills = [entry.room, entry.seat, entry.format].filter(value => value && value.trim() && value.trim() !== '-').map(value => '<span class="exam-item-pill">' + value + '</span>').join('');
+                    return '<div class="exam-item"><div class="exam-item-head"><div class="exam-item-subject">' + entry.subject + '</div><div class="exam-item-time">' + entry.time + '</div></div><div class="exam-item-meta">' + pills + '</div></div>';
+                }).join('');
+                return '<div class="exam-day-card"><div class="exam-day-head"><div class="exam-day-title">' + date + '</div></div><div class="exam-list">' + items + '</div></div>';
+            }).join('') + '</div>';
+            root.dataset.rendered = '1';
+        }
+
+        document.querySelectorAll('.tab-button').forEach(button => button.addEventListener('click', () => setActiveTab(button.dataset.tab)));
+        document.querySelectorAll('.materials-toggle').forEach(toggle => toggle.addEventListener('click', () => toggle.closest('.materials-section').classList.toggle('expanded')));
+        setActiveTab('grades');
+    </script>
+</body>
+
+</html>
