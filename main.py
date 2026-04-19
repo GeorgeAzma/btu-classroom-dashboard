@@ -1,5 +1,5 @@
 from pathlib import Path
-import json, os, subprocess, re, asyncio, zipfile
+import argparse, json, os, subprocess, re, asyncio, zipfile
 from bs4 import BeautifulSoup
 import aiohttp
 
@@ -7,6 +7,7 @@ APP_DIR = (Path(os.environ.get('APPDATA', Path.home())) if os.name == 'nt' else 
 BASE_URL = "https://classroom.btu.edu.ge/en/student/me/courses"
 SCHEDULE_URL = "https://classroom.btu.edu.ge/en/student/me/schedule"
 HEADERS = {"User-Agent": "Mozilla/5.0", "Accept": "text/html,*/*;q=0.8"}
+COOKIE_FILE = APP_DIR / 'cookie.txt'
 
 def load_config():
     try: return json.loads((APP_DIR / 'config.json').read_text())
@@ -16,6 +17,40 @@ def load_config():
 def save_config(cfg):
     APP_DIR.mkdir(parents=True, exist_ok=True)
     (APP_DIR / 'config.json').write_text(json.dumps(cfg, indent=2))
+
+
+def save_cookie(cookie: str) -> None:
+    cfg = load_config()
+    save_config({**cfg, "cookie": cookie})
+    APP_DIR.mkdir(parents=True, exist_ok=True)
+    COOKIE_FILE.write_text(cookie, encoding='utf-8')
+
+
+def read_cookie_file(path: str | None) -> str:
+    if not path:
+        return ""
+
+    cookie_path = Path(path)
+    if cookie_path.is_file():
+        return cookie_path.read_text(encoding='utf-8').strip()
+
+    return ""
+
+
+def resolve_cookie(cli_cookie: str = "", cookie_file: str = "") -> str:
+    if cli_cookie.strip():
+        return cli_cookie.strip()
+
+    if env_cookie := os.environ.get('BTU_COOKIE', '').strip():
+        return env_cookie
+
+    if file_cookie := read_cookie_file(cookie_file):
+        return file_cookie
+
+    if COOKIE_FILE.exists():
+        return COOKIE_FILE.read_text(encoding='utf-8').strip()
+
+    return ""
 
 def parse_num(td):
     try: return float(td.get_text(strip=True).replace(",", "."))
@@ -518,13 +553,30 @@ async def test_cookie(cookie: str) -> str:
         return ""
 
 
-async def get_cookie() -> tuple[str, str]:
+async def get_cookie(cli_cookie: str = "", cookie_file: str = "", headless: bool = False) -> tuple[str, str]:
     cfg = load_config()
-    if (c := cfg.get("cookie")) and (html := await test_cookie(c)): return c, html
-    if c: print("Cookie expired...")
-    c = await login()
-    save_config({**cfg, "cookie": c})
-    return c, await test_cookie(c)
+
+    cookie = resolve_cookie(cli_cookie, cookie_file)
+    if not cookie and (cfg_cookie := cfg.get("cookie", "")):
+        cookie = cfg_cookie
+
+    html = ""
+    if cookie:
+        html = await test_cookie(cookie)
+        if not html:
+            print("Saved cookie expired or is invalid.")
+
+    if not html:
+        if headless:
+            raise RuntimeError("No valid BTU cookie found. Pass --cookie, --cookie-file, or set BTU_COOKIE.")
+        cookie = await login()
+        save_cookie(cookie)
+        html = await test_cookie(cookie)
+
+    if not html:
+        raise RuntimeError("Unable to authenticate with BTU Classroom.")
+
+    return cookie, html
 
 
 async def process_course(course: dict, html_base: Path, course_base: Path, http: Http) -> tuple[dict, dict]:
@@ -541,8 +593,8 @@ async def process_course(course: dict, html_base: Path, course_base: Path, http:
         return course, {}
 
 
-async def main():
-    cookie, html = await get_cookie()
+async def main(cli_cookie: str = "", cookie_file: str = "", headless: bool = False):
+    cookie, html = await get_cookie(cli_cookie, cookie_file, headless)
     courses = parse_courses(html)
     if not courses:
         print("No courses found")
@@ -596,6 +648,11 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    parser = argparse.ArgumentParser(description="BTU Classroom dashboard")
+    parser.add_argument("--cookie", default="", help="BTU session cookie string")
+    parser.add_argument("--cookie-file", default="", help="Path to a file containing the BTU session cookie")
+    parser.add_argument("--headless", action="store_true", help="Do not open a browser for login; require an existing cookie")
+    args = parser.parse_args()
+    asyncio.run(main(args.cookie, args.cookie_file, args.headless))
 
 # pyinstaller -n btu --onedir --clean --noupx --windowed --optimize 2 --icon btu.ico main.py
