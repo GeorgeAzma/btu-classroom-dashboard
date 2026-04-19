@@ -2,39 +2,20 @@ from pathlib import Path
 import argparse, json, os, subprocess, re, asyncio, zipfile
 from bs4 import BeautifulSoup
 import aiohttp
+from dotenv import load_dotenv, set_key
+from getpass import getpass
 
 APP_DIR = (Path(os.environ.get('APPDATA', Path.home())) if os.name == 'nt' else Path.home() / '.config') / 'btu-dashboard'
 BASE_URL = "https://classroom.btu.edu.ge/en/student/me/courses"
 SCHEDULE_URL = "https://classroom.btu.edu.ge/en/student/me/schedule"
 HEADERS = {"User-Agent": "Mozilla/5.0", "Accept": "text/html,*/*;q=0.8"}
 COOKIE_FILE = APP_DIR / 'cookie.txt'
-
-def load_config():
-    try: return json.loads((APP_DIR / 'config.json').read_text())
-    except: return {}
-
-
-def save_config(cfg):
-    APP_DIR.mkdir(parents=True, exist_ok=True)
-    (APP_DIR / 'config.json').write_text(json.dumps(cfg, indent=2))
+PLAYWRIGHT_PROFILE_DIR = APP_DIR / 'playwright-profile'
 
 
 def save_cookie(cookie: str) -> None:
-    cfg = load_config()
-    save_config({**cfg, "cookie": cookie})
     APP_DIR.mkdir(parents=True, exist_ok=True)
     COOKIE_FILE.write_text(cookie, encoding='utf-8')
-
-
-def read_cookie_file(path: str | None) -> str:
-    if not path:
-        return ""
-
-    cookie_path = Path(path)
-    if cookie_path.is_file():
-        return cookie_path.read_text(encoding='utf-8').strip()
-
-    return ""
 
 
 def resolve_cookie(cli_cookie: str = "", cookie_file: str = "") -> str:
@@ -44,13 +25,17 @@ def resolve_cookie(cli_cookie: str = "", cookie_file: str = "") -> str:
     if env_cookie := os.environ.get('BTU_COOKIE', '').strip():
         return env_cookie
 
-    if file_cookie := read_cookie_file(cookie_file):
-        return file_cookie
+    if cookie_file and (cookie_path := Path(cookie_file)).is_file():
+        if file_cookie := cookie_path.read_text(encoding='utf-8').strip():
+            return file_cookie
 
     if COOKIE_FILE.exists():
         return COOKIE_FILE.read_text(encoding='utf-8').strip()
 
     return ""
+
+
+TABS_HTML = '''<div class="tabs" role="tablist" aria-label="Dashboard sections"><button class="tab-button active" type="button" data-tab="grades" role="tab" aria-selected="true">Grades</button><button class="tab-button" type="button" data-tab="calendar" role="tab" aria-selected="false">Calendar</button><button class="tab-button" type="button" data-tab="exams" role="tab" aria-selected="false">Exams</button></div>'''
 
 def parse_num(td):
     try: return float(td.get_text(strip=True).replace(",", "."))
@@ -107,11 +92,181 @@ def merge_schedule_entries(entries: list[dict]) -> list[dict]:
 
     return merged
 
-def generate_tabs_html() -> str:
-    return '''<div class="tabs" role="tablist" aria-label="Dashboard sections"><button class="tab-button active" type="button" data-tab="grades" role="tab" aria-selected="true">Grades</button><button class="tab-button" type="button" data-tab="calendar" role="tab" aria-selected="false">Calendar</button><button class="tab-button" type="button" data-tab="exams" role="tab" aria-selected="false">Exams</button></div>'''
-
-
 TEMPLATE = (Path(__file__).with_name("template.html").read_text(encoding="utf-8"))
+ENV_FILE = Path(__file__).with_name(".env")
+
+
+def get_login_credentials(prompt_if_missing: bool = False) -> tuple[str, str]:
+    load_dotenv(ENV_FILE, override=False)
+
+    email = (
+        os.environ.get("BTU_EMAIL")
+        or os.environ.get("GOOGLE_EMAIL")
+        or os.environ.get("EMAIL")
+        or ""
+    ).strip()
+    password = (
+        os.environ.get("BTU_PASSWORD")
+        or os.environ.get("GOOGLE_PASSWORD")
+        or os.environ.get("PASSWORD")
+        or ""
+    )
+
+    if prompt_if_missing:
+        if not email:
+            email = input("Google email: ").strip()
+        if not password:
+            password = getpass("Google password: ")
+
+        if not email or not password:
+            raise RuntimeError("Google email and password are required for headless login.")
+
+    return email, password
+
+
+def save_login_credentials(email: str, password: str) -> None:
+    ENV_FILE.touch(exist_ok=True)
+    set_key(str(ENV_FILE), "BTU_EMAIL", email)
+    set_key(str(ENV_FILE), "BTU_PASSWORD", password)
+
+
+async def detect_login_failure(page) -> str:
+    try:
+        content = (await page.locator("body").inner_text()).lower()
+    except Exception:
+        content = ""
+
+    error_markers = [
+        "couldn't find your google account",
+        "could not find your google account",
+        "that google account doesn't exist",
+        "that google account does not exist",
+        "we couldn’t find your google account",
+        "we couldn't find your google account",
+        "we could not find your google account",
+        "enter a valid email address or phone number",
+        "wrong password",
+        "invalid password",
+        "try again",
+        "couldn't sign you in",
+        "could not sign you in",
+        "enter a valid email address",
+        "enter an email or phone",
+        "that username doesn't match",
+        "password was incorrect",
+        "too many failed attempts",
+        "verify it's you",
+        "use your phone",
+        "enter the code",
+        "verification code",
+        "2-step verification",
+        "two-step verification",
+    ]
+
+    if any(marker in content for marker in error_markers):
+        return page.url
+
+    return ""
+
+
+async def wait_for_selector_or_failure(page, selector: str, timeout_ms: int, stage: str) -> None:
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout_ms / 1000
+
+    while loop.time() < deadline:
+        failure_url = await detect_login_failure(page)
+        if failure_url:
+            raise RuntimeError(f"Google rejected the {stage}")
+
+        locator = page.locator(selector)
+        try:
+            if await locator.count() and await locator.first.is_visible():
+                return
+        except Exception:
+            pass
+
+        await page.wait_for_timeout(500)
+
+    raise TimeoutError(f"Timed out waiting for {stage} to continue. Current URL: {page.url}")
+
+
+async def wait_for_login_completion(page, timeout_ms: int = 120000) -> None:
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout_ms / 1000
+    last_report = 0.0
+    last_url = ""
+
+    async def click_if_visible(target_page, selector: str) -> bool:
+        locator = target_page.locator(selector)
+        try:
+            if await locator.count() and await locator.first.is_visible():
+                await locator.first.click()
+                return True
+        except Exception:
+            return False
+        return False
+
+    while loop.time() < deadline:
+        if page.url != last_url or loop.time() - last_report >= 10:
+            last_url = page.url
+            last_report = loop.time()
+            try:
+                title = await page.title()
+            except Exception:
+                title = ""
+            print(f"  Waiting on: {page.url}{f' | {title}' if title else ''}")
+
+        failure_url = await detect_login_failure(page)
+        if failure_url:
+            raise RuntimeError("Google rejected the credentials")
+
+        if "/student/" in page.url:
+            return
+
+        if "accounts.google.com" in page.url:
+            if await click_if_visible(page, 'button:has-text("Continue")'):
+                await page.wait_for_load_state("domcontentloaded")
+                continue
+            if await click_if_visible(page, 'button:has-text("Allow")'):
+                await page.wait_for_load_state("domcontentloaded")
+                continue
+            if await click_if_visible(page, 'button:has-text("Accept")'):
+                await page.wait_for_load_state("domcontentloaded")
+                continue
+            if await click_if_visible(page, 'button:has-text("I agree")'):
+                await page.wait_for_load_state("domcontentloaded")
+                continue
+            if await click_if_visible(page, 'button:has-text("Yes")'):
+                await page.wait_for_load_state("domcontentloaded")
+                continue
+            if await click_if_visible(page, 'button:has-text("No thanks")'):
+                await page.wait_for_load_state("domcontentloaded")
+                continue
+            if await click_if_visible(page, 'button:has-text("Skip")'):
+                await page.wait_for_load_state("domcontentloaded")
+                continue
+            if await click_if_visible(page, 'button:has-text("Next")'):
+                await page.wait_for_load_state("domcontentloaded")
+                continue
+
+            email_field = page.locator('input[type="email"]')
+            password_field = page.locator('input[type="password"]')
+            if await email_field.count() and await email_field.first.is_visible():
+                await email_field.first.press("Enter")
+                await page.wait_for_load_state("domcontentloaded")
+                continue
+            if await password_field.count() and await password_field.first.is_visible():
+                await password_field.first.press("Enter")
+                await page.wait_for_load_state("domcontentloaded")
+                continue
+
+        if "classroom.btu.edu.ge" in page.url and "/student/" not in page.url:
+            await page.wait_for_timeout(1000)
+            continue
+
+        await page.wait_for_timeout(1000)
+
+    raise TimeoutError(f"Login did not complete. Current URL: {page.url}")
 
 class Http:
     """Simple async HTTP client with connection pooling"""
@@ -479,7 +634,7 @@ def generate_html(data: list[tuple[dict, dict]], base: Path, schedule: dict) -> 
     schedule_json = json.dumps(schedule, ensure_ascii=False).replace("</", "<\\/")
     exams_json = json.dumps(schedule.get("exams", {"title": None, "entries": []}), ensure_ascii=False).replace("</", "<\\/")
     return (
-        TEMPLATE.replace("{{TABS}}", generate_tabs_html())
+        TEMPLATE.replace("{{TABS}}", TABS_HTML)
         .replace("{{COURSES}}", "".join(generate_course_html(c, d, base) for c, d in data))
         .replace("{{SUMMARY}}", generate_summary_html(data))
         .replace("{{COURSE_COUNT}}", str(len(data)))
@@ -516,32 +671,79 @@ def serve_and_open(port: int = 1111, headless: bool = False) -> None:
         sys.exit(0)
 
     socketserver.TCPServer.allow_reuse_address = True
-    server = socketserver.TCPServer(("", port), QuietHandler)
+    actual_port = port
+    while True:
+        try:
+            server = socketserver.TCPServer(("", actual_port), QuietHandler)
+            break
+        except OSError:
+            actual_port += 1
     signal.signal(signal.SIGINT, shutdown)
-    print(f"Serving at http://localhost:{port}")
+    print(f"Serving at http://localhost:{actual_port}")
     if not headless:
-        open_browser(f"http://localhost:{port}")
+        open_browser(f"http://localhost:{actual_port}")
     server.serve_forever(poll_interval=0.1)
 
 
-async def login() -> str:
+async def login(headless=False, email: str = "", password: str = "", save_credentials: bool = False) -> str:
     """Open browser for user to login, return session cookie"""
+    if not email or not password:
+        env_email, env_password = get_login_credentials(prompt_if_missing=True)
+        email = email or env_email
+        password = password or env_password
+
+    if save_credentials:
+        save_login_credentials(email, password)
+
     try: from playwright.async_api import async_playwright
     except: subprocess.run(["pip", "install", "playwright"], check=True); from playwright.async_api import async_playwright
     print("Please login in the browser...")
     async with async_playwright() as p:
         try:
-            browser = await p.chromium.launch(headless=False)
+            context = await p.chromium.launch_persistent_context(
+                user_data_dir=str(PLAYWRIGHT_PROFILE_DIR),
+                headless=headless,
+            )
         except Exception:
             print("Installing browser...")
             import sys
             subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
-            browser = await p.chromium.launch(headless=False)
-        page = await browser.new_page()
-        await page.goto("https://classroom.btu.edu.ge/login")
-        await page.wait_for_url("**/student/**", timeout=120000)
-        cookies = await page.context.cookies()
-        await browser.close()
+            context = await p.chromium.launch_persistent_context(
+                user_data_dir=str(PLAYWRIGHT_PROFILE_DIR),
+                headless=headless,
+            )
+
+        page = context.pages[0] if context.pages else await context.new_page()
+        await page.goto(BASE_URL)
+        if "/student/" in page.url:
+            print("Reusing existing browser session.")
+        else:
+            await page.goto("https://classroom.btu.edu.ge/login")
+        if "/student/" not in page.url and email and password:
+            print("Signing in with Google...")
+            google_link = page.locator('a[href*="accounts.google.com/o/oauth2/auth"]')
+            if await google_link.count():
+                oauth_url = await google_link.first.get_attribute("href")
+                if oauth_url:
+                    await page.goto(oauth_url)
+                else:
+                    await google_link.first.click()
+            else:
+                await page.get_by_role("link", name=re.compile("შესვლა|Sign in|Login", re.I)).click()
+
+            await page.wait_for_load_state("domcontentloaded")
+            await page.locator('input[type="email"]').wait_for(state="visible", timeout=30000)
+            await page.locator('input[type="email"]').fill(email)
+            await page.get_by_role("button", name=re.compile("Next|შემდეგი", re.I)).click()
+
+            await wait_for_selector_or_failure(page, 'input[type="password"]', 30000, "email")
+            await page.locator('input[type="password"]').fill(password)
+            await page.get_by_role("button", name=re.compile("Next|შემდეგი", re.I)).click()
+
+        print("Waiting for login...")
+        await wait_for_login_completion(page, timeout_ms=120000)
+        cookies = await context.cookies()
+        await context.close()
         return "; ".join(f"{c.get('name')}={c.get('value')}" for c in cookies)
 
 
@@ -554,12 +756,8 @@ async def test_cookie(cookie: str) -> str:
         return ""
 
 
-async def get_cookie(cli_cookie: str = "", cookie_file: str = "", headless: bool = False) -> tuple[str, str]:
-    cfg = load_config()
-
+async def get_cookie(cli_cookie: str = "", cookie_file: str = "", headless: bool = False, save_credentials: bool = False) -> tuple[str, str]:
     cookie = resolve_cookie(cli_cookie, cookie_file)
-    if not cookie and (cfg_cookie := cfg.get("cookie", "")):
-        cookie = cfg_cookie
 
     html = ""
     if cookie:
@@ -568,9 +766,7 @@ async def get_cookie(cli_cookie: str = "", cookie_file: str = "", headless: bool
             print("Saved cookie expired or is invalid.")
 
     if not html:
-        if headless:
-            raise RuntimeError("No valid BTU cookie found. Pass --cookie, --cookie-file, or set BTU_COOKIE.")
-        cookie = await login()
+        cookie = await login(headless=headless, save_credentials=save_credentials)
         save_cookie(cookie)
         html = await test_cookie(cookie)
 
@@ -594,12 +790,11 @@ async def process_course(course: dict, html_base: Path, course_base: Path, http:
         return course, {}
 
 
-async def main(cli_cookie: str = "", cookie_file: str = "", headless: bool = False):
-    cookie, html = await get_cookie(cli_cookie, cookie_file, headless)
+async def main(cli_cookie: str = "", cookie_file: str = "", headless: bool = False, save_credentials: bool = False):
+    cookie, html = await get_cookie(cli_cookie, cookie_file, headless, save_credentials)
     courses = parse_courses(html)
     if not courses:
         print("No courses found")
-        save_config({k: v for k, v in load_config().items() if k != "cookie"})
         return
 
     schedule = {"semester": None, "days": [], "entries": [], "exams": {"title": None, "entries": []}}
@@ -652,8 +847,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="BTU Classroom dashboard")
     parser.add_argument("--cookie", default="", help="BTU session cookie string")
     parser.add_argument("--cookie-file", default="", help="Path to a file containing the BTU session cookie")
-    parser.add_argument("--headless", action="store_true", help="Do not open a browser for login; require an existing cookie")
+    parser.add_argument("--headless", action="store_true", help="Run login in headless mode and use Google credentials from .env or prompts")
+    parser.add_argument("--save", action="store_true", help="Save prompted or provided Google credentials to .env")
     args = parser.parse_args()
-    asyncio.run(main(args.cookie, args.cookie_file, args.headless))
+    asyncio.run(main(args.cookie, args.cookie_file, args.headless, args.save))
 
 # pyinstaller -n btu --onedir --clean --noupx --windowed --optimize 2 --icon btu.ico main.py

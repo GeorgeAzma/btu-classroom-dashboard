@@ -30,3 +30,5 @@ curl -sSL https://raw.githubusercontent.com/GeorgeAzma/btu-classroom-dashboard/m
 - If you have a problem open Issue on GitHub, or comment on the post
 - It is safe to run and passwords are not stored
 - You may need to install Git, You can do this using Command Prompt: `winget install Git.Git`
+- For headless login, put `BTU_EMAIL` and `BTU_PASSWORD` in a local `.env` file; if they are missing, the script will prompt in the terminal
+- Use `--save` to save entered email/password to `.env`
