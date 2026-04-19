@@ -643,8 +643,9 @@ async def main(cli_cookie: str = "", cookie_file: str = "", headless: bool = Fal
         import shutil
         shutil.copy(icon_src, APP_DIR / "btu.ico")
     print(f"Generated {APP_DIR / 'index.html'}")
-    os.chdir(APP_DIR)
-    serve_and_open(1111)
+    if not headless:
+        os.chdir(APP_DIR)
+        serve_and_open(1111)
 
 
 if __name__ == "__main__":
