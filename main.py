@@ -1,5 +1,5 @@
 from pathlib import Path
-import json, os, subprocess, re, asyncio
+import json, os, subprocess, re, asyncio, zipfile
 from bs4 import BeautifulSoup
 import aiohttp
 
@@ -351,6 +351,19 @@ async def download_materials(materials: list[dict], folder: Path, http: Http) ->
     
     await asyncio.gather(*(fetch_and_save_material(m) for m in materials), return_exceptions=False)
 
+
+def create_material_zip(folder: Path, zip_path: Path) -> None:
+    if not folder.exists():
+        return
+
+    files = [path for path in folder.iterdir() if path.is_file()]
+    if not files:
+        return
+
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for path in files:
+            archive.write(path, arcname=path.name)
+
 def grade_color(pct):
     if pct >= 91: return "#22c55e"
     if pct >= 81: return "#84cc16"
@@ -402,8 +415,9 @@ def generate_course_html(course: dict, data: dict, base: Path) -> str:
     
     mat_html = ""
     if materials:
+        zip_link = f'<a href="{folder}/material.zip" class="material" target="_blank">Download ZIP</a>' if (base / course['name'] / "material.zip").exists() else ""
         links = "".join(f'<a href="{folder}/material/{m["url"].split("/")[-1]}" class="material" target="_blank">{m["name"]}</a>' for m in materials if m["url"])
-        mat_html = f'<div class="materials-section"><div class="materials-toggle"><span class="arrow">▶</span> Materials ({len(materials)})</div><div class="materials">{links}</div></div>'
+        mat_html = f'<div class="materials-section"><div class="materials-toggle"><span class="arrow">▶</span> Materials ({len(materials)})</div><div class="materials">{zip_link}{links}</div></div>'
     
     return f'''<div class="course"><div class="course-header"><div class="course-info"><div class="course-name">{course['name']}</div><div class="course-meta">Group {scores.get('group', '?')} · {scores.get('lector', 'Unknown')}</div></div>{syllabus}<span class="ects">{int(course['ects'])} ECTS</span><div class="grade" style="color:{color}">{grade_html}</div></div><div class="assessments">{assess_html}</div>{mat_html}</div>'''
 
@@ -520,6 +534,7 @@ async def process_course(course: dict, html_base: Path, course_base: Path, http:
         data = await fetch_course_pages(course, html_folder, course_folder, http)
         if materials := data.get("materials"):
             await download_materials(materials, course_folder / "material", http)
+            create_material_zip(course_folder / "material", course_folder / "material.zip")
         return course, data
     except Exception as e:
         print(f"  Error processing {name}: {e}")
