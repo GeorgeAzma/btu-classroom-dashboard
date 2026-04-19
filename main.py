@@ -497,7 +497,7 @@ def open_browser(url: str) -> None:
     else: webbrowser.open(url)
 
 
-def serve_and_open(port: int = 1111) -> None:
+def serve_and_open(port: int = 1111, headless: bool = False) -> None:
     import http.server, socketserver, signal, sys
 
     class QuietHandler(http.server.SimpleHTTPRequestHandler):
@@ -519,7 +519,8 @@ def serve_and_open(port: int = 1111) -> None:
     server = socketserver.TCPServer(("", port), QuietHandler)
     signal.signal(signal.SIGINT, shutdown)
     print(f"Serving at http://localhost:{port}")
-    open_browser(f"http://localhost:{port}")
+    if not headless:
+        open_browser(f"http://localhost:{port}")
     server.serve_forever(poll_interval=0.1)
 
 
@@ -643,9 +644,8 @@ async def main(cli_cookie: str = "", cookie_file: str = "", headless: bool = Fal
         import shutil
         shutil.copy(icon_src, APP_DIR / "btu.ico")
     print(f"Generated {APP_DIR / 'index.html'}")
-    if not headless:
-        os.chdir(APP_DIR)
-        serve_and_open(1111)
+    os.chdir(APP_DIR)
+    serve_and_open(1111, headless)
 
 
 if __name__ == "__main__":
